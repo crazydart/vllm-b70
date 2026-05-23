@@ -198,8 +198,26 @@ This is the SYCL backends-mismatch class of error (related to but not identical 
 
 ## Next action
 
-**Phase 4b — source-build `vllm-xpu-kernels` against oneAPI 2026.0.** In progress at `~/vllm-b70/vllm-xpu-kernels/` checked out at pin `4c83144` with AOT patch applied. Build log at `/tmp/xpu-kernels-build.log`. Compiling oneDNN GEMM generators (XeLP/XeHP/Xe2/Xe3 targets) on `-j 192`. Build dir was 320 MB at last check; expect 10-30 more minutes.
+**Phase 4b ✅ done — Backends mismatch fixed; new failure: hang after model load.**
 
-Once that wheel lands, `pip install --no-build-isolation .` will replace the binary-incompatible 0.1.4 wheel and our serve should work.
+Source-built `vllm-xpu-kernels==0.1.4.dev1+g4c831445b.d20260523` against host oneAPI 2026.0 (10m 39s compile after first attempt failed on missing `intel-ocloc` + `llvm-foreach`-not-in-PATH; `sudo apt install intel-ocloc` + added `/opt/intel/oneapi/compiler/2026.0/bin/compiler` to PATH; 170 MB `libattn_kernels_xe_2.so` of AOT-compiled BMG attention kernels). Installed cleanly, replaces wheel.
+
+Retest `vllm serve qwen3-0.6b --tp 1`:
+- ✅ Engine startup, XCCL init OK
+- ✅ Flash Attention 2 backend
+- ✅ Model loaded (1.12 GiB in 1.6s)
+- ❌ **Hang.** EngineCore process stuck in `futex_wait` for 4+ minutes after model load. No /v1/models response. No error logged. /proc/PID/stack shows futex syscall.
+
+This is a different failure from the Backends mismatch. Two suspects:
+1. **Profile run hang** — first kernel dispatch via the AOT BMG kernels deadlocks
+2. **XCCL barrier hang** — distributed init at world_size=1 (still uses xccl per log)
+
+### Phase 4c — debug the hang
+
+Options:
+1. `--num-gpu-blocks-override 1024` to skip profile_run entirely
+2. `VLLM_FALLBACK_PROFILE=1` to use the simpler upstream profile path (we kept Intel's split via xpu_worker.py)
+3. Run with `py-spy dump --pid <enginecore-pid>` while hung to see Python stack
+4. Try `--distributed-executor-backend uni` to force uniproc and skip distributed init
 
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
