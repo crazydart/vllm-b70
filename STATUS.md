@@ -212,12 +212,42 @@ This is a different failure from the Backends mismatch. Two suspects:
 1. **Profile run hang** — first kernel dispatch via the AOT BMG kernels deadlocks
 2. **XCCL barrier hang** — distributed init at world_size=1 (still uses xccl per log)
 
-### Phase 4c — debug the hang
+### Phase 4c ✅ — root cause isolated: source-built rms_norm hangs
 
-Options:
-1. `--num-gpu-blocks-override 1024` to skip profile_run entirely
-2. `VLLM_FALLBACK_PROFILE=1` to use the simpler upstream profile path (we kept Intel's split via xpu_worker.py)
-3. Run with `py-spy dump --pid <enginecore-pid>` while hung to see Python stack
-4. Try `--distributed-executor-backend uni` to force uniproc and skip distributed init
+`--num-gpu-blocks-override 1024` didn't help (vLLM v0.19 runs profile_run anyway for capability discovery).
+
+`py-spy dump` on the hung EngineCore showed exactly where it's stuck:
+
+```
+__call__ (torch/_ops.py:1209)
+rms_norm (vllm/_custom_ops.py:408)             ← here
+rms_norm (vllm/model_executor/layers/layernorm.py:62)
+forward_xpu (vllm/model_executor/layers/layernorm.py:388)
+...
+_dummy_run (vllm/v1/worker/gpu_model_runner.py:5477)
+profile_run (vllm/v1/worker/gpu_model_runner.py:5785)
+```
+
+The very first kernel dispatch (`rms_norm` on the first transformer layer) hangs.
+
+**Standalone reproduction confirms it's our kernel build:**
+
+```python
+import vllm_xpu_kernels._C
+x = torch.randn(2, 16, 64, dtype=torch.bfloat16, device='xpu')
+weight = torch.randn(64, dtype=torch.bfloat16, device='xpu')
+out = torch.empty_like(x)
+torch.ops._C.rms_norm(out, x, weight, 1e-6)  # hangs, never returns
+```
+
+Same kernel from the **pre-built wheel `0.1.4`** worked in Intel's container with their oneAPI 2025.3 compiler. Our source build against oneAPI 2026.0 produces a hung kernel.
+
+**Hypothesis:** the oneAPI 2026.0 SYCL compiler has a Battlemage codegen regression for `rms_norm` (and likely other kernels). The 2025.3 compiler produced working kernels.
+
+### Phase 4d options
+
+1. **Install oneAPI 2025.3 alongside 2026.0**, rebuild `vllm-xpu-kernels` against 2025.3. Most likely to fix everything. ~2-3 GB apt install.
+2. **Use the pre-built `vllm_xpu_kernels==0.1.4` wheel** with our patched vLLM, replicating Intel's container env (LD_LIBRARY_PATH, render group, etc.) on the host. The wheel works in Intel's container; the Backends-mismatch we saw may be fixable with environment alone.
+3. **File upstream issue** at `vllm-project/vllm-xpu-kernels` about the 2026.0 SYCL regression. Useful regardless of fix path.
 
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
