@@ -8,6 +8,8 @@ Every workaround applied to get upstream vLLM running on 4× Intel Arc Pro B70 (
 
 **Working state as of 2026-05-23:** TP=1 serves and completes chat reliably (Qwen3-0.6B, 22.6 tok/s single, 131.6 tok/s c=8). **TP=2 now also serves and completes chat** end-to-end (verified deterministic 40-token completion at temperature=0).
 
+**What does NOT work yet:** hybrid-attention models (Qwen3.5-27B, Qwen3.6-27B, anything else under `Qwen3_5ForConditionalGeneration` / Mamba-style `linear_attention`). The model loads weights cleanly (25.68 GiB on TP=2 BF16), but `profile_run()` fails because `vllm/model_executor/layers/fla/ops/` is all `@triton.jit` and triton-xpu can't coexist with our torch+xpu wheel (see [N5](#n5-do-not-re-install-triton-xpu-on-the-current-stack)).
+
 ---
 
 ## Fix index
@@ -38,6 +40,7 @@ Approaches we tried and rejected (do not repeat):
 - [N2. `CCL_ATL_TRANSPORT=mpi` — needs mpirun bootstrap](#n2-do-not-use-ccl_atl_transportmpi)
 - [N3. Rebuilding `vllm-xpu-kernels` from source against 2026.0](#n3-do-not-rebuild-vllm-xpu-kernels-from-source-yet)
 - [N4. Patching individual kernels (rms_norm/rope/activation) to `forward_native`](#n4-do-not-patch-individual-kernels-to-forward_native)
+- [N5. Re-installing triton-xpu to unblock hybrid attention (libsycl version wall)](#n5-do-not-re-install-triton-xpu-on-the-current-stack)
 
 Resolved (kept here as a debugging postmortem):
 - [O1. TP>1 "JIT segfault in `fill_kernel<bool>`" — was a downstream cascade](#o1-tp1-fill_kernelbool-jit-segfault--resolved)
@@ -349,6 +352,36 @@ With both controls in place, the bare `!!! Segfault !!!` became a clean Python t
 **What was wrong with that.** The right fix (E1) was to install the prebuilt 0.1.8.1 wheel, which makes all of these kernels work natively. Patching the dispatchers added per-op torch-native fallbacks that are 3-5x slower than the SYCL kernels and were no longer needed once E1 was in place. All four files were reverted.
 
 **Lesson.** If a custom op fails, check the kernel wheel version *before* writing a torch-eager fallback. Hand-fused SYCL kernels are 3-5x faster — don't take the hit if a wheel bump fixes the crash.
+
+---
+
+### N5. Do NOT re-install triton-xpu on the current stack
+
+**Why we tried.** Hybrid-attention models (Qwen3.5-27B / Qwen3.6-27B, arch `Qwen3_5ForConditionalGeneration`) use `linear_attention` layers that route through `vllm/model_executor/layers/fla/ops/` — every op there is `@triton.jit`. With no triton installed the model loads weights fine (Worker_TP0 logged "Model loading took 25.68 GiB"), but `profile_run()` immediately fails: `RuntimeError: module 'triton' has no attribute 'cdiv'` (the `TritonPlaceholder` shim doesn't stub `cdiv`).
+
+**What we tried.**
+- `triton-xpu==3.6.0` from Intel's index (matches auto-memory's "working FLA stack" combo).
+- `pytorch-triton-xpu==3.5.0` from PyTorch's xpu wheel index.
+
+**What broke (3.6.0).** First triton kernel JIT fails to dlopen its freshly-compiled `spirv_utils.so`:
+```
+OSError: /opt/intel/oneapi/compiler/2026.0/lib/libsycl.so.9:
+   undefined symbol: urDeviceWaitExp, version LIBUR_LOADER_0.12
+```
+The 2026.0 system `libur_loader` *does* export that symbol. The problem is load order: torch's vendored `venv/lib/libur_loader.so.0.12.0` (different MD5, missing `urDeviceWaitExp`) loads first because torch imports first; when triton later dlopens `libsycl.so.9`, the resolver returns the already-loaded older `libur_loader` and the version symbol can't be resolved.
+
+**What broke (3.5.0).** Loads farther but segfaults during the first JIT kernel execution. Different bug, also fatal.
+
+**Why this is a wall.** All current `torch==2.x+xpu` wheels (2.10, 2.11, 2.12 verified by dry-run) pin to `dpcpp-cpp-rt==2025.3.x` / `intel-cmplr-lib-ur==2025.3.x` — i.e. they bundle `libsycl.so.8` from the 2025.3 era. Our host oneAPI is 2026.0 (`libsycl.so.9`). triton-xpu 3.6.0 is built against 2026.0. There is no published torch+xpu wheel built against 2026.0, so triton 3.6.0 + torch from PyPI cannot coexist on this stack.
+
+**Realistic paths to unblock hybrid models** (none implemented yet):
+1. Build `torch+xpu` from source against system oneAPI 2026.0 (matches `libsycl.so.9`, lets triton-xpu 3.6.0 import cleanly). Pricey: ~hours of build time + debugging.
+2. Write torch-native fallbacks for the FLA ops that `gdn_linear_attn.py:forward_native` invokes (`chunk_gated_delta_rule`, `l2norm_fwd`, `solve_tril`, etc.). Roughly 200-500 LoC of Mamba-scan code, with correctness validation. Slow but standalone.
+3. Use Intel's `intel/llm-scaler-vllm` container for hybrid models — Intel pre-resolved this version mismatch in their published image. Gives up host-native serving.
+
+**Don't.** Don't reach for triton-xpu unless one of those three is in place first.
+
+**vLLM 0.22 migration.** Re-evaluate when (a) a torch+xpu wheel built against oneAPI 2026.0+ exists, or (b) vLLM upstream lands torch-native Mamba ops for the XPU path.
 
 ---
 
