@@ -278,6 +278,43 @@ The workaround paths (use 2025.3, or use the pre-built wheel) all hit version-mi
 2. **Wait for oneAPI 2026.1** (or whatever fixes the BMG regression) and retry the host build.
 3. **File upstream issues** at `vllm-project/vllm-xpu-kernels` (about the 2026.0 BMG regression) and at `intel/llvm` (the SYCL compiler).
 
+## Phase 5 — Specialist sub-agent review + kernel-source workaround attempts (Day 2)
+
+Spawned an oneAPI/SYCL/Battlemage specialist sub-agent with full context. Key findings from its investigation:
+
+### Sub-agent surfaced bugs that match our fingerprint
+
+- **compute-runtime #922** — CR `26.14.37833.4` regression on Xe2/BMG. Fix: pin CR `26.05.37020.3-1` (we already have this).
+- **compute-runtime #921** — multi-BMG `urContextCreate` regression on NEO 25.40+, fails on our 26.05.37020.3-2. Only workaround is `ONEAPI_DEVICE_SELECTOR=level_zero:0` (single card). **Independent blocker for TP>1.**
+- **vllm#41663** — same B70 stack, **established working env set:** `CCL_ENABLE_SYCL_KERNELS=0`, `SYCL_UR_USE_LEVEL_ZERO_V2=0`, `UR_L0_V2_FORCE_DISABLE_COPY_OFFLOAD=1`, `CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0`, `CCL_ATL_TRANSPORT=ofi`, `ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE`, `ZE_AFFINITY_MASK=0,1`. We were missing `UR_L0_V2_FORCE_DISABLE_COPY_OFFLOAD=1` and `CCL_TOPO_FABRIC_VERTEX_CONNECTION_CHECK=0`.
+- **llama.cpp#21893** — BMG `bmg_g21` AOT optimization bug; workaround there is `GGML_SYCL_DISABLE_OPT=1`. Analogous to dropping AOT in our build.
+- **vllm-xpu-kernels v0.1.8.1** (May 2026) — post-dates our pin (`4c83144`). v0.1.7 fixed leaks in attention launches/events; v0.1.8.1 added Xe2/BMG MLA decode path. **We were on a pre-release commit.**
+
+### Kernel source observations (sub-agent's read of `csrc/layernorm.cpp`)
+
+- `[[sycl::reqd_sub_group_size(32)]]` on a 1024-thread workgroup → 32 sub-groups → exactly the path IGC optimizes most aggressively. `reduce_over_group` + single-lane SLM store + barrier + broadcast is the construct IGC reorders.
+- `vec4_t<scalar_t>` with `alignas(8)` and reinterpret-cast vec loads → AOT SLM/SIMD vectorizer likely the codegen culprit.
+- All custom-op kernels (`pos_encoding_kernels.cpp`, `activation.cpp`) use the SAME pattern → explains why patching just rms_norm moves the hang to rotary_embedding.
+
+### Python-side workarounds attempted today
+
+Patched `forward_xpu` → `forward_native` for:
+- `vllm/model_executor/layers/layernorm.py::RMSNorm.forward_xpu` (1 method)
+- `vllm/model_executor/layers/rotary_embedding/base.py::RotaryEmbedding.forward_xpu`
+- `vllm/model_executor/layers/activation.py` (6 methods: SiluAndMul, MulAndSilu, GeluAndMul, FastGELU, NewGELU, QuickGELU)
+
+Tested with various env-var combinations. Best result so far: model loaded + profile_run started + hung in `rotary_embedding` (with minimal env). With more env vars, fails earlier at `Backends mismatch` right after model load.
+
+### Phase 5 next attempt (in progress)
+
+Per sub-agent rank-1 recommendation: bump `vllm_xpu_kernels` to **v0.1.8.1** (checked out commit `44b10e0`, May 2026) and rebuild with **oneAPI 2025.3** compiler. Build log: `/tmp/xpu-kernels-build-v181.log`. Expected ~13 min.
+
+If v0.1.8.1+2025.3 build works standalone, then test serve. If still hits library mixing (libsycl.so.9 from triton-xpu vs .so.8 from 2025.3), the fallback is sub-agent's path #1: pin CR + uninstall triton-xpu + force TORCH_SDPA backend (need to patch xpu.py to expose it).
+
+### Brutal assessment (per sub-agent)
+
+> Salvageable today on the host, but only at TP=1. CR multi-BMG context bug #921 is an independent blocker for TP>1 that no env-var combination fixes — even if we nail the codegen issue, TP=2/4 needs CR downgrade to pre-25.40 or Intel's container. For TP>1 production: use Intel's container. Document in `~/docs/intel-stack/vllm-xpu.md` and move on.
+
 ## Phase 4e — Quick-win attempts (Reverse-engineering the 2026.0 regression)
 
 Tried to isolate the 2026.0 codegen bug via build flags:
