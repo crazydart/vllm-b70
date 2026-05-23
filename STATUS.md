@@ -244,10 +244,38 @@ Same kernel from the **pre-built wheel `0.1.4`** worked in Intel's container wit
 
 **Hypothesis:** the oneAPI 2026.0 SYCL compiler has a Battlemage codegen regression for `rms_norm` (and likely other kernels). The 2025.3 compiler produced working kernels.
 
-### Phase 4d options
+### Phase 4d results — tried 2025.3 path; hit library version mixing
 
-1. **Install oneAPI 2025.3 alongside 2026.0**, rebuild `vllm-xpu-kernels` against 2025.3. Most likely to fix everything. ~2-3 GB apt install.
-2. **Use the pre-built `vllm_xpu_kernels==0.1.4` wheel** with our patched vLLM, replicating Intel's container env (LD_LIBRARY_PATH, render group, etc.) on the host. The wheel works in Intel's container; the Backends-mismatch we saw may be fixable with environment alone.
-3. **File upstream issue** at `vllm-project/vllm-xpu-kernels` about the 2026.0 SYCL regression. Useful regardless of fix path.
+**Installed oneAPI 2025.3.3-30 alongside 2026.0** via `sudo apt install intel-oneapi-compiler-dpcpp-cpp-2025.3`. Both compilers now coexist.
+
+**Rebuilt `vllm-xpu-kernels` with 2025.3 compiler.** 13m 13s. Same procedure as before but sourced `/opt/intel/oneapi/compiler/2025.3/env/vars.sh` after the main setvars.
+
+**Standalone `rms_norm` test: WORKS.** 5 ms, real numerical output. Confirms the 2025.3-built kernel is correct.
+
+**Full `vllm serve` with 2025.3 runtime: failed differently.** Engine got further this time (model loaded ✅, profile_run started ✅), then died loading triton's spirv_utils:
+
+```
+OSError: /opt/intel/oneapi/compiler/2026.0/lib/libsycl.so.9: undefined symbol: urDeviceWaitExp,
+        version LIBUR_LOADER_0.12
+```
+
+**Root cause of the new failure:** `triton-xpu==3.6.0` (pre-built wheel) is linked against `libsycl.so.9`. 2025.3 only ships `libsycl.so.8`. So even with 2025.3 first in `LD_LIBRARY_PATH`, triton-xpu's dlopen pulls in 2026.0's `libsycl.so.9` — and that lib references a UR symbol the 2026.0 ur loader doesn't expose for whatever reason (apparently mismatched 2026.0 compiler / 2026.0 ur loader sub-versions).
+
+**Strategic conclusion:** The "use 2025.3 to work around 2026.0 compiler" path requires aligning the *entire* toolchain to 2025.3 — torch+xpu, triton-xpu, vllm-xpu-kernels, and all libs they pull in. That's a much bigger lift than just rebuilding xpu-kernels.
+
+### Honest answer to "why aren't we fixing 2026.0?"
+
+**We can't.** The 2026.0 SYCL compiler is a closed Intel binary. We don't have source. The only paths to "fix" it are:
+1. File upstream issue at Intel and wait for them to fix the BMG codegen regression
+2. Discover a kernel source-level workaround that avoids whatever compiler bug emits the hung code
+3. Wait for oneAPI 2026.1+ and hope it's fixed
+
+The workaround paths (use 2025.3, or use the pre-built wheel) all hit version-mixing issues because the surrounding toolchain (torch, triton-xpu) is built against one specific oneAPI release.
+
+### Realistic stable paths (post-this-session)
+
+1. **Use Intel's `intel/llm-scaler-vllm:0.14.0-b8.2.1-patched` container** for serving (proven works on this hardware, even with our exact model). Apply our patches on top via the container's writable layer. Not as clean as a host-native build but immediately functional.
+2. **Wait for oneAPI 2026.1** (or whatever fixes the BMG regression) and retry the host build.
+3. **File upstream issues** at `vllm-project/vllm-xpu-kernels` (about the 2026.0 BMG regression) and at `intel/llvm` (the SYCL compiler).
 
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
