@@ -292,7 +292,13 @@ $ curl -s -X POST http://127.0.0.1:8000/v1/chat/completions \
 }
 ```
 
-Stability: 3 sequential queries all returned coherent text, deterministic at temperature=0.
+Stability: 3 sequential queries all returned coherent text, deterministic at temperature=0. Long-context (686 prompt tokens) works. 8-concurrent requests batched cleanly. Server stable across multiple test rounds.
+
+**Measured perf on Qwen3-0.6B, single B70:**
+- Single-stream: **22.6 tok/s** (80 tokens in 3.54s)
+- 8 concurrent: **131.6 tok/s aggregate** (240 tokens in 1.82s)
+
+(Intel's container with triton-xpu fully enabled would be ~2-3× faster per token; our triton-free workaround sacrifices the optimized hot paths but keeps the stack stable on 2026.0/BMG.)
 
 ### The recipe
 
