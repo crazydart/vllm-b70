@@ -278,4 +278,27 @@ The workaround paths (use 2025.3, or use the pre-built wheel) all hit version-mi
 2. **Wait for oneAPI 2026.1** (or whatever fixes the BMG regression) and retry the host build.
 3. **File upstream issues** at `vllm-project/vllm-xpu-kernels` (about the 2026.0 BMG regression) and at `intel/llvm` (the SYCL compiler).
 
+## Phase 4e — Quick-win attempts (Reverse-engineering the 2026.0 regression)
+
+Tried to isolate the 2026.0 codegen bug via build flags:
+
+| Attempt | Result |
+|---|---|
+| **2026.0 + AOT (`-fsycl-targets=spir64_gen` + bmg target)** | rms_norm kernel **HANGS forever** on first dispatch |
+| **2026.0 + JIT (`-fsycl-targets=spir64`, no AOT target)** | rms_norm kernel **fails with `Invalid argument`** + `level_zero UR_RESULT_ERROR_UNINITIALIZED` |
+| **2025.3 + AOT (Intel's standard config)** | rms_norm works in **5 ms** with real output ✅ |
+
+**The 2026.0 SYCL compiler has regressions in BOTH the AOT and JIT pipelines for Battlemage targets.** Not isolated to AOT. This is a deeper compiler issue.
+
+To rebuild without AOT we patched `CMakeLists.txt` and `cmake/utils.cmake` to wrap `-fsycl-targets=spir64_gen` and `-Xsycl-target-backend=spir64_gen "-device ${AOT_DEVICES}..."` flags in `if(AOT_DEVICES)` guards (three locations). Otherwise CMake emitted broken commands when `AOT_DEVICES=""`. Those edits are local to this attempt; if you want to revert: `git checkout CMakeLists.txt cmake/utils.cmake` in `~/vllm-b70/vllm-xpu-kernels/`.
+
+### What we'd need to fully reverse-engineer the bug
+
+- `SYCL_DUMP_IMAGES=1` build comparison between 2025.3 and 2026.0 to identify the IR diff
+- Extract AOT GPU binaries, disassemble with `ocloc disasm` or `iga`, compare ISA
+- Read `csrc/.../rms_norm.cpp` for SYCL constructs to hypothesize which one triggers the regression
+- Try rewriting rms_norm to avoid suspect constructs (different reduction primitive, manual loop unroll, etc.)
+
+Estimated 4-8 hours of focused investigation. Could yield a kernel-source workaround that ships on 2026.0.
+
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
