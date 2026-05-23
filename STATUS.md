@@ -101,6 +101,29 @@ So Intel's `_forward_ipex` method becomes dead code we don't need. Bonus: taking
 
 **Phase 3 status: complete. Zero conflict markers in the staged tree.**
 
+## Phase 3b ✅ done — IT BUILDS AND IMPORTS
+
+```
+$ venv/bin/python -c "from vllm.version import __version__; print(__version__)"
+0.19.1.dev5+g1b15c5984
+
+$ venv/bin/python -c "from vllm.platforms import current_platform; print(current_platform.is_xpu(), current_platform.device_count())"
+True 4
+
+$ venv/bin/python -c "from vllm._xpu_ops import xpu_ops; print(hasattr(xpu_ops, 'flash_attn_varlen_func'))"
+True
+```
+
+- Built with **`uv venv --python 3.12`** (per AGENTS.md)
+- **`torch==2.10.0+xpu`** + **`triton-xpu==3.6.0`** (matches verified trainer stack `[[feedback_triton_xpu_headers]]`)
+- **`vllm-xpu-kernels==0.1.4`** wheel (Intel's pinned release)
+- `VLLM_TARGET_DEVICE=xpu uv pip install --no-build-isolation -e .` on the resolved vLLM tree — installed cleanly with no compile errors
+- All 4× B70 cards visible (device 0xe223 = Battlemage)
+- Our hand-merged env vars resolved correctly: `VLLM_XPU_FP8_DTYPE=e5m2`, `VLLM_OFFLOAD_WEIGHTS_BEFORE_QUANT=False`, `VLLM_QUANTIZE_Q40_LIB=/opt/lib/vllm_int4_for_multi_arc.so`
+- `current_platform.fp8_dtype()` returns `torch.float8_e5m2` (the env-gated default)
+
+**Important note:** the install completed without compiling C++/SYCL kernels because XPU target uses the pre-built `vllm-xpu-kernels==0.1.4` wheel. We're not yet using source-built kernels from commit `4c83144` with the Battlemage AOT patch — that's a follow-up if the wheel turns out to have B70 issues at runtime.
+
 ### Phase 3b — venv setup + build (NEXT after 3c)
 
 - Set up `build/v0.19-torch210/venv/` with torch 2.10.0+xpu, triton-xpu 3.6.0 (matches `[[feedback_triton_xpu_headers]]`)
@@ -115,10 +138,14 @@ Rewrite Intel's `_forward_ipex` method (uses `vllm._ipex_ops.ipex_ops.varlen_att
 
 ## Next action
 
-**Phase 3b** — venv setup + build:
-1. Create `build/v0.19-torch210/venv/` (uv venv per AGENTS.md), install `torch==2.10.0+xpu` + `triton-xpu==3.6.0` + `requirements/xpu.txt`.
-2. Build `vllm-xpu-kernels` from source at pinned commit `4c83144` with the AOT patch applied (Battlemage targets only).
-3. `VLLM_TARGET_DEVICE=xpu pip install -e .` on the resolved vLLM tree.
-4. Capture build errors, iterate.
+**Phase 4 — first `vllm serve` boot on a single B70.** Gated on explicit ask per `[[feedback_no_unsolicited_model_runs]]`. Suggested first model: a small one we already have locally (e.g., Qwen3-0.6B). Test path:
 
-After that: try `vllm serve` against a small local model (gate per [[feedback_no_unsolicited_model_runs]] — explicit ask required).
+1. `source /opt/intel/oneapi/setvars.sh --force` (with `set +eu`/`set -eu` wrap)
+2. `VLLM_TARGET_DEVICE=xpu ONEAPI_DEVICE_SELECTOR=level_zero:0 venv/bin/vllm serve <model-path>` (single B70 first)
+3. Curl `/v1/models` to verify it's up
+4. Curl `/v1/chat/completions` with a tiny prompt
+5. Watch for the xe BCS GP-fault if it appears (the vllm#41663 known issue)
+
+Then **Phase 5 — TP scaling**:
+- TP=2 across two B70s — the critical reproduction of vllm#41663 on our kernel (7.0.0-15-generic vs the HWE 6.17 the bug was filed against)
+- TP=4 across all four B70s
