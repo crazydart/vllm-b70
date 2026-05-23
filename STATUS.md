@@ -278,6 +278,42 @@ The workaround paths (use 2025.3, or use the pre-built wheel) all hit version-mi
 2. **Wait for oneAPI 2026.1** (or whatever fixes the BMG regression) and retry the host build.
 3. **File upstream issues** at `vllm-project/vllm-xpu-kernels` (about the 2026.0 BMG regression) and at `intel/llvm` (the SYCL compiler).
 
+## 🎉 SUCCESS — Working host-native serve on B70
+
+**vLLM 0.19.1+ours serves Qwen3-0.6B on a single B70 with real chat completion.**
+
+```
+$ curl -s -X POST http://127.0.0.1:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "...", "messages": [{"role": "user", "content": "Say hi"}], "max_tokens": 30}'
+{
+  "choices": [{"message": {"content": "<think>\nOkay, the user just said \"Say hi.\"..."}}],
+  "usage": {"completion_tokens": 30, "total_tokens": 40}
+}
+```
+
+Stability: 3 sequential queries all returned coherent text, deterministic at temperature=0.
+
+### The recipe
+
+1. **Apply our curated patch series** (50 files / 90 conflicts resolved) to upstream vLLM v0.19.0 — `patches/apply-curated.sh`.
+2. **Install `vllm-xpu-kernels==0.1.8.1` from the prebuilt wheel** (NOT the `0.1.4` that vLLM's `requirements/xpu.txt` pulls — that one was built against an older SYCL and hangs `rms_norm` on BMG with oneAPI 2026.0):
+   ```
+   uv pip install --force-reinstall \
+     https://github.com/vllm-project/vllm-xpu-kernels/releases/download/v0.1.8.1/vllm_xpu_kernels-0.1.8.1-cp38-abi3-manylinux_2_28_x86_64.whl
+   ```
+3. **Uninstall `triton-xpu`**. It links against `libsycl.so.9` in a way that causes "Backends mismatch" on 2026.0 / BMG. The one triton kernel that gets called on the inference hot path (`_compute_slot_mapping_kernel` in `vllm/v1/worker/block_table.py`) needs a torch-native fallback.
+4. **Apply `patches/block_table_torch_fallback.patch`** which adds the torch-native `_compute_slot_mapping_torch()` to `block_table.py` and reroutes `BlockTable.compute_slot_mapping` to call it.
+5. **Serve**: `scripts/start-vllm-b70.sh` (sources oneAPI, sets `ONEAPI_DEVICE_SELECTOR=level_zero:0`, runs `vllm serve --enforce-eager --tensor-parallel-size 1`).
+
+End-to-end install + serve recipe at `scripts/install-runtime.sh`.
+
+### Caveats
+
+- **Single B70 only** for now (TP=1). TP>1 is blocked by `intel/compute-runtime#921` (multi-BMG `urContextCreate` regression in NEO 25.40+, fails on our 26.05.37020.3-2). This is independent of our codegen workarounds and needs an upstream fix.
+- `--enforce-eager` required (no CUDA-graph equivalent on XPU yet).
+- Lost optimizations from not having `triton-xpu` available: some attention / quantization fast paths fall back to slower implementations. For Qwen3-0.6B this doesn't matter; for larger models, perf may be noticeably worse than Intel's container.
+
 ## Phase 5 — Specialist sub-agent review + kernel-source workaround attempts (Day 2)
 
 Spawned an oneAPI/SYCL/Battlemage specialist sub-agent with full context. Key findings from its investigation:
