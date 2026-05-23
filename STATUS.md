@@ -74,26 +74,29 @@ See [`analysis/deepdive-consolidated.md`](analysis/deepdive-consolidated.md) for
 - **Curated patch series:** `~/vllm-b70/patches/raw/vllm_for_multi_arc.patch` applied via `apply-curated.sh` with `curated-excludes.txt` (23 files excluded — 10 hard errors + 10 already-merged-upstream + 3 docs)
 - **vllm-xpu-kernels:** cloned to `~/vllm-b70/vllm-xpu-kernels/`. State writeup at [`analysis/vllm-xpu-kernels-state.md`](analysis/vllm-xpu-kernels-state.md). Key findings: `flash_attn_varlen_func` exists (the IPEX replacement we need); AOT patch applies at pinned commit `4c83144` but fails at HEAD.
 
-### Phase 3a — conflict resolution (NEXT)
+### Phase 3a — conflict resolution ✅ 49/50 complete
 
-Apply state on the branch:
-- 42 files cleanly applied
-- 52 files applied with conflicts (50 unique files have markers)
-- 90 total `<<<<<<<` markers
-- Distribution: 30 files with 1 conflict, 11 with 2, 4 with 3, 4 with 4-5, 1 with 8 (`mm_encoder_attention.py`)
+Worked through 50 conflict files in 4 batches; each batch sub-agent-reviewed before applying; all syntax-checked with `python3 -m py_compile`. Branch `phase3-3way-applied` in the local build tree now has 4 resolution commits on top of the WIP starting point.
 
-See [`analysis/conflict-resolution-plan.md`](analysis/conflict-resolution-plan.md) for per-file action plan with resolution heuristics. **Estimate: 2-4 hours of methodical conflict resolution.**
+- **Batch 1** (6 files): trivial take-ours/theirs picks for unrelated upstream cleanups + flash_attn.py imports.
+- **Batch 2** (10 files): mixed — envs.py hand-merge keeping both env-var sets, xpu.py with dedupe + IPEX backend drop + env-gated fp8 dtype, xpu_worker.py taking Intel's full memory-profile rewrite, xpu_communicator.py keeping upstream's explicit `group=self.device_group`.
+- **Batch 3** (18 model files): bulk take-ours via regex (drop Intel's IPEX/sym_int4 model patches); one hybrid for minicpmv.py (keep upstream wrappers + add Intel's `_resampler_moved` init); flagged Qwen3-Next/qwen3-moe MoE-padding deferrals for Phase 5.
+- **Batch 4** (15 files): bulk take-ours + vllm.py hybrid (keep Intel's XPU async-scheduling disable + the new pipeline_parallel_size>1 branch).
 
-### Phase 3b — venv setup + build
+**Only remaining conflict: `vllm/model_executor/layers/attention/mm_encoder_attention.py`** (8 markers — the IPEX→`vllm_xpu_kernels.flash_attn_varlen_func` rewrite). That's Phase 3c (its own task because it needs real porting code, not just merge picking).
+
+### Phase 3b — venv setup + build (NEXT after 3c)
 
 - Set up `build/v0.19-torch210/venv/` with torch 2.10.0+xpu, triton-xpu 3.6.0 (matches `[[feedback_triton_xpu_headers]]`)
 - Build `vllm-xpu-kernels` at pinned commit `4c83144` with AOT patch
 - `VLLM_TARGET_DEVICE=xpu pip install -e .` on the resolved vllm tree
 
-**Updated estimate to first `vllm serve` boot on a single B70: 3-5 days of focused work** (was 2-3, accounting for the underestimated conflict resolution).
+### Phase 3c — mm_encoder_attention.py port (NEXT)
+
+Rewrite Intel's `_forward_ipex` method (uses `vllm._ipex_ops.ipex_ops.varlen_attention`) to use `vllm_xpu_kernels.flash_attn_interface.flash_attn_varlen_func`. Both expose roughly the same API; need to compare signatures and write the port. Fallback if signatures differ: use `torch.nn.functional.scaled_dot_product_attention` directly (works on XPU since torch 2.7+xpu).
+
+**Updated estimate to first `vllm serve` boot on a single B70: 2-3 more days of focused work.**
 
 ## Next action
 
-Phase 3a — walk the 50-file / 90-conflict queue per [`analysis/conflict-resolution-plan.md`](analysis/conflict-resolution-plan.md). Work from the `phase3-3way-applied` branch in the build tree, resolving heuristically (take ours / take theirs / hand-merge), commit per logical group. End-state: zero conflict markers.
-
-Then Phase 3b: build vllm-xpu-kernels at pinned commit, set up venv, `pip install -e .` on the resolved vllm tree.
+**Phase 3c** — port `vllm/model_executor/layers/attention/mm_encoder_attention.py`'s `_forward_ipex` to use `vllm_xpu_kernels.flash_attn_interface.flash_attn_varlen_func`. Then `pip install vllm-xpu-kernels` at pin `4c83144` with AOT patch, set up venv, `pip install -e .` on resolved vLLM tree.
