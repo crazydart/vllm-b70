@@ -7,11 +7,13 @@ forward onto modern upstream [vLLM][vllm], so you don't have to use Intel's
 older [`intel/llm-scaler-vllm`][llm-scaler] container fork. Same hardware
 support; current upstream vLLM.
 
-> [!WARNING]
-> **Work in progress.** First boot is not yet verified. Conflict resolution
-> is in flight; build attempts will follow. See [`STATUS.md`](STATUS.md) for
-> the living state. Open an issue if you want to help — especially if you
-> have B70 (or any Battlemage Arc card) and can test.
+> [!NOTE]
+> **Working as of 2026-05-23.** Single-B70 serve verified with Qwen3-0.6B
+> — real chat completion, deterministic at temperature=0. See
+> [`STATUS.md`](STATUS.md) for the recipe and caveats. TP>1 is blocked by
+> [`intel/compute-runtime#921`](https://github.com/intel/compute-runtime/issues/921)
+> (independent NEO regression) until upstream fix; use Intel's container
+> for TP=2/4 production today.
 
 ## What this gives you
 
@@ -35,7 +37,7 @@ You can either wait for Intel to upstream their work (no public timeline), or ca
 - Should also work on other Battlemage hardware (Arc B580, B770) — untested
 - Intel oneAPI 2025.3+, Linux kernel 6.17+ (HWE) or 7.0+, Python 3.12
 
-## Quick start (when the build works — not yet)
+## Quick start
 
 ```bash
 # Get our work
@@ -45,21 +47,23 @@ cd vllm-b70
 # Get upstream vLLM at v0.19.0
 git clone -b v0.19.0 --depth 1 https://github.com/vllm-project/vllm.git build/vllm
 
-# Apply our curated patch series (excludes 23 files that are stale,
-# IPEX-only, or already-merged-upstream)
+# Apply our curated patch series + resolve remaining conflicts per
+# analysis/conflict-resolution-plan.md
 ./patches/apply-curated.sh build/vllm
 
-# Manually resolve remaining conflict markers per analysis/conflict-resolution-plan.md
-# (will be replaced by a clean patch series once Phase 3a is done)
+# Then apply our torch-native slot_mapping patch (needed because we
+# uninstall triton-xpu to dodge the SYCL Backends-mismatch on BMG/2026.0)
+cd build/vllm && git apply ../../patches/block_table_torch_fallback.patch && cd ../..
 
-# Get vllm-xpu-kernels at Intel's pinned commit + apply AOT patch
-git clone https://github.com/vllm-project/vllm-xpu-kernels.git build/vllm-xpu-kernels
-cd build/vllm-xpu-kernels && git checkout 4c83144
-git apply ../../patches/raw/vllm-xpu-kernels-aot.patch
-cd ../..
+# Create venv + install the runtime stack
+uv venv --python 3.12 build/venv
+./scripts/install-runtime.sh build/venv
 
-# Build (instructions to come once we have a verified build)
+# Serve (edit start-vllm-b70.sh paths first)
+./scripts/start-vllm-b70.sh
 ```
+
+See `scripts/install-runtime.sh` for the full step-by-step.
 
 ## Status
 
@@ -69,11 +73,11 @@ See [`STATUS.md`](STATUS.md) for the living phase tracker. Headline:
 |---|---|
 | 1 — Recon (what's in Intel's patch) | ✅ Complete |
 | 2 — Deep-dive (per-file porting plan) | ✅ Complete |
-| 3a — Conflict resolution (~50 files, ~90 markers) | 🔄 In progress (16/50 resolved) |
-| 3b — Venv setup + first `pip install -e .` | ⏳ Pending |
-| 3c — `mm_encoder_attention.py` IPEX→xpu-kernels port | ⏳ Pending |
-| 4 — First `vllm serve` boot on single B70 | ⏳ Pending |
-| 5 — TP scaling (TP=2, TP=4) | ⏳ Pending |
+| 3a — Conflict resolution (50 files / 90 markers) | ✅ Complete |
+| 3b — Venv setup + `pip install -e .` | ✅ Complete |
+| 3c — `mm_encoder_attention.py` port | ✅ Complete (turned out unnecessary) |
+| 4 — First `vllm serve` boot on single B70 | ✅ Complete |
+| 5 — TP scaling (TP=2, TP=4) | 🚫 Blocked by [intel/compute-runtime#921](https://github.com/intel/compute-runtime/issues/921) |
 
 ## Layout
 
