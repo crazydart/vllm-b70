@@ -136,16 +136,46 @@ Rewrite Intel's `_forward_ipex` method (uses `vllm._ipex_ops.ipex_ops.varlen_att
 
 **Updated estimate to first `vllm serve` boot on a single B70: 2-3 more days of focused work.**
 
+## Phase 4 — first serve attempt: blocked on SYCL "Backends mismatch"
+
+Downloaded **Qwen/Qwen3-0.6B** (~1.5 GB safetensors) to `~/models/qwen3-0.6b/`. Launched `vllm serve` on a single B70:
+
+```
+VLLM_TARGET_DEVICE=xpu \
+ONEAPI_DEVICE_SELECTOR=level_zero:0 \
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+CCL_ENABLE_SYCL_KERNELS=0 \
+SYCL_UR_USE_LEVEL_ZERO_V2=0 \
+  vllm serve ~/models/qwen3-0.6b --dtype bfloat16 --max-model-len 4096 \
+    --gpu-memory-utilization 0.85 --enforce-eager --tensor-parallel-size 1
+```
+
+**Progress observed:**
+- ✅ Engine startup, XCCL init, all configuration parsed
+- ✅ `Setting VLLM_KV_CACHE_LAYOUT to 'NHD' for XPU`
+- ✅ `Using Flash Attention backend` / `Using FlashAttention version 2`
+- ✅ Model weights loaded: **1.12 GiB in 2.4s**
+- ❌ **Crash on first kernel launch:** `terminate called after throwing an instance of 'sycl::_V1::exception': what(): Backends mismatch`
+
+This is the SYCL backends-mismatch class of error (related to but not identical to vllm#41663). Hypothesis: the pre-built `vllm-xpu-kernels==0.1.4` wheel was compiled against a different oneAPI / Level Zero version than our host (oneAPI 2025.3 + compiler 2026.0 + Level Zero 1.28.2). The wheel's SYCL queue picks one backend; torch's XPU queue picks another; first dispatch fails.
+
+### Bugfix landed during 4 attempt
+
+- `vllm/model_executor/model_loader/utils.py` had leftover Intel `isinstance(quant_method, SymInt4LinearMethod)` checks (the import was dropped via take-ours but the use sites landed cleanly elsewhere → `NameError` at first load). Restored from pristine v0.19.0. Commit `b5343a441` on the build branch.
+
+### Tools we tried (didn't resolve)
+
+- `CCL_ENABLE_SYCL_KERNELS=0` — set; didn't help
+- `SYCL_UR_USE_LEVEL_ZERO_V2=0` — set; didn't help
+- `--enforce-eager` — set; didn't help (this is for TP=2 GP-fault, different issue)
+- Clean triton install (`triton==3.7.0` was pulled in alongside `triton-xpu==3.6.0`; per Intel recipe, uninstalled both, reinstalled `triton-xpu==3.6.0` only) — fixed triton import warnings, didn't fix Backends mismatch
+
 ## Next action
 
-**Phase 4 — first `vllm serve` boot on a single B70.** Gated on explicit ask per `[[feedback_no_unsolicited_model_runs]]`. Suggested first model: a small one we already have locally (e.g., Qwen3-0.6B). Test path:
+**Phase 4b — debug the Backends mismatch.** Options:
 
-1. `source /opt/intel/oneapi/setvars.sh --force` (with `set +eu`/`set -eu` wrap)
-2. `VLLM_TARGET_DEVICE=xpu ONEAPI_DEVICE_SELECTOR=level_zero:0 venv/bin/vllm serve <model-path>` (single B70 first)
-3. Curl `/v1/models` to verify it's up
-4. Curl `/v1/chat/completions` with a tiny prompt
-5. Watch for the xe BCS GP-fault if it appears (the vllm#41663 known issue)
+1. **Source-build `vllm-xpu-kernels` at pin `4c83144`** with the AOT patch (matches our oneAPI 2025.3). Expected 10-20 min build, may resolve binary-compat issue.
+2. **Compare against Intel's container** (`intel/llm-scaler-vllm:0.14.0-b8.2.1-patched`, already on disk @ 41 GB). If their container can serve a model on this hardware, our delta is environment, not vLLM patches. If their container can't either, B70 vLLM serving is fundamentally not ready.
+3. **Try `TRITON_INTERPRET=1`** to disable triton JIT — probably won't help since the crash is in the pre-built kernel `.so`, not triton-compiled code.
 
-Then **Phase 5 — TP scaling**:
-- TP=2 across two B70s — the critical reproduction of vllm#41663 on our kernel (7.0.0-15-generic vs the HWE 6.17 the bug was filed against)
-- TP=4 across all four B70s
+Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
