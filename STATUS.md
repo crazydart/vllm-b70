@@ -136,7 +136,33 @@ Rewrite Intel's `_forward_ipex` method (uses `vllm._ipex_ops.ipex_ops.varlen_att
 
 **Updated estimate to first `vllm serve` boot on a single B70: 2-3 more days of focused work.**
 
-## Phase 4 — first serve attempt: blocked on SYCL "Backends mismatch"
+## Phase 4 — first serve attempt: identified root cause
+
+**Intel's `llm-scaler-vllm:0.14.0-b8.2.1-patched` container served Qwen3-0.6B on a single B70 successfully** — `/v1/models` returns 200, chat completion produced real coherent text (`<think>\nOkay, the user is asking for the capital of France...`). Hardware ✅, vLLM concept ✅, our model ✅.
+
+**Our build fails with the same model + flags because of an oneAPI binary compatibility mismatch:**
+
+| | Intel container | Our host |
+|---|---|---|
+| oneAPI compiler | **2025.3** (Jan 22) | **2026.0** (May 3) — only version installed |
+| `vllm-xpu-kernels==0.1.4` wheel | built against 2025.3 SYCL | runs against 2026.0 SYCL → **Backends mismatch** |
+
+The pre-built wheel's SYCL backend symbols/contexts don't match what oneAPI 2026.0 provides. First kernel dispatch crashes.
+
+### Container launch that works (from `/mnt/nas/notes/vllm-production-setup.md`)
+
+```bash
+RGID=$(getent group render | cut -d: -f3)  # critical: render group GID, not video
+docker run -d --name vllm \
+  --device /dev/dri --group-add "$RGID" --shm-size 16g \
+  -e ONEAPI_DEVICE_SELECTOR=level_zero:0 \
+  -v ~/models/qwen3-0.6b:/models/qwen3-0.6b:ro \
+  -p 8001:8000 --entrypoint vllm \
+  intel/llm-scaler-vllm:0.14.0-b8.2.1-patched \
+  serve /models/qwen3-0.6b --tensor-parallel-size 1 --dtype bfloat16 \
+    --max-model-len 4096 --gpu-memory-utilization 0.85 --enforce-eager \
+    --host 0.0.0.0 --port 8000
+```
 
 Downloaded **Qwen/Qwen3-0.6B** (~1.5 GB safetensors) to `~/models/qwen3-0.6b/`. Launched `vllm serve` on a single B70:
 
@@ -172,10 +198,8 @@ This is the SYCL backends-mismatch class of error (related to but not identical 
 
 ## Next action
 
-**Phase 4b — debug the Backends mismatch.** Options:
+**Phase 4b — source-build `vllm-xpu-kernels` against oneAPI 2026.0.** In progress at `~/vllm-b70/vllm-xpu-kernels/` checked out at pin `4c83144` with AOT patch applied. Build log at `/tmp/xpu-kernels-build.log`. Compiling oneDNN GEMM generators (XeLP/XeHP/Xe2/Xe3 targets) on `-j 192`. Build dir was 320 MB at last check; expect 10-30 more minutes.
 
-1. **Source-build `vllm-xpu-kernels` at pin `4c83144`** with the AOT patch (matches our oneAPI 2025.3). Expected 10-20 min build, may resolve binary-compat issue.
-2. **Compare against Intel's container** (`intel/llm-scaler-vllm:0.14.0-b8.2.1-patched`, already on disk @ 41 GB). If their container can serve a model on this hardware, our delta is environment, not vLLM patches. If their container can't either, B70 vLLM serving is fundamentally not ready.
-3. **Try `TRITON_INTERPRET=1`** to disable triton JIT — probably won't help since the crash is in the pre-built kernel `.so`, not triton-compiled code.
+Once that wheel lands, `pip install --no-build-isolation .` will replace the binary-incompatible 0.1.4 wheel and our serve should work.
 
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
