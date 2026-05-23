@@ -1,0 +1,57 @@
+diff --git a/vllm/v1/worker/xpu_worker.py b/vllm/v1/worker/xpu_worker.py
+index 005f02fb6..9803027ca 100644
+--- a/vllm/v1/worker/xpu_worker.py
++++ b/vllm/v1/worker/xpu_worker.py
+@@ -103,7 +103,13 @@ class XPUWorker(Worker):
+         # profiled peak memory.
+         torch.xpu.synchronize()
+         used_memory = torch.xpu.memory_allocated()
+-        total_gpu_memory = torch.xpu.get_device_properties(self.local_rank).total_memory
++        # WORKAROUND (vllm-b70): see init_device — under per-worker
++        # ONEAPI_DEVICE_SELECTOR filtering, self.local_rank may not be a valid
++        # torch index. self.device.index was set by init_device with the right
++        # value.
++        total_gpu_memory = torch.xpu.get_device_properties(
++            self.device.index
++        ).total_memory
+         free_gpu_memory = total_gpu_memory - used_memory
+ 
+         # NOTE(woosuk): Here we assume that the other processes using the same
+@@ -142,7 +148,11 @@ class XPUWorker(Worker):
+         # Calculate the number of blocks that can be allocated with the
+         # profiled peak memory.
+         torch.xpu.synchronize()
+-        total_gpu_memory = torch.xpu.get_device_properties(self.local_rank).total_memory
++        # WORKAROUND (vllm-b70): see init_device — self.device.index is the
++        # right torch index under per-worker ONEAPI_DEVICE_SELECTOR filtering.
++        total_gpu_memory = torch.xpu.get_device_properties(
++            self.device.index
++        ).total_memory
+ 
+         # NOTE(woosuk): Here we assume that the other processes using the same
+         # GPU did not change their memory usage during the profiling.
+@@ -177,12 +187,22 @@ class XPUWorker(Worker):
+             and device.type == "xpu"
+             and current_platform.is_xpu()
+         ):
+-            self.device = torch.device(f"xpu:{self.local_rank}")
++            # WORKAROUND (vllm-b70): the parent sets per-worker
++            # ONEAPI_DEVICE_SELECTOR=level_zero:<local_rank> so SYCL only sees
++            # one device per worker (avoids multi-device JIT crash on BMG/2026)
++            # while L0 still sees both cards (needed for oneCCL IPC). Inside
++            # this worker torch.xpu.device_count()==1 and the only device is
++            # at index 0 from torch's perspective, regardless of local_rank.
++            if torch.xpu.device_count() == 1:
++                local_index = 0
++            else:
++                local_index = self.local_rank
++            self.device = torch.device(f"xpu:{local_index}")
+             torch.accelerator.set_device_index(self.device)
+             current_platform.check_if_supports_dtype(self.model_config.dtype)
+             torch.accelerator.empty_cache()
+             self.init_gpu_memory = torch.xpu.get_device_properties(
+-                self.local_rank
++                local_index
+             ).total_memory
+         else:
+             raise RuntimeError(f"Not support device type: {self.device_config.device}")

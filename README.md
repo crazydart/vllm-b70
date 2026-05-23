@@ -8,12 +8,12 @@ older [`intel/llm-scaler-vllm`][llm-scaler] container fork. Same hardware
 support; current upstream vLLM.
 
 > [!NOTE]
-> **Working as of 2026-05-23.** Single-B70 serve verified with Qwen3-0.6B
-> — real chat completion, deterministic at temperature=0. See
-> [`STATUS.md`](STATUS.md) for the recipe and caveats. TP>1 is blocked by
-> [`intel/compute-runtime#921`](https://github.com/intel/compute-runtime/issues/921)
-> (independent NEO regression) until upstream fix; use Intel's container
-> for TP=2/4 production today.
+> **Working as of 2026-05-23.** Single-B70 AND TP=2 serves verified with
+> Qwen3-0.6B — real chat completion, deterministic at temperature=0. See
+> [`FIXES.md`](FIXES.md) for the full workaround log and [`STATUS.md`](STATUS.md)
+> for the phase tracker. TP=2 required per-worker SYCL filtering, a few
+> small source patches, and a precise set of oneCCL env vars — all
+> documented and reproducible.
 
 ## What this gives you
 
@@ -67,7 +67,7 @@ See `scripts/install-runtime.sh` for the full step-by-step.
 
 ## Status
 
-See [`STATUS.md`](STATUS.md) for the living phase tracker. Headline:
+See [`STATUS.md`](STATUS.md) for the living phase tracker, and [`FIXES.md`](FIXES.md) for the comprehensive log of every workaround (env vars, patches, dead ends) — written as the migration reference for future vLLM bumps. Headline:
 
 | Phase | State |
 |---|---|
@@ -77,7 +77,8 @@ See [`STATUS.md`](STATUS.md) for the living phase tracker. Headline:
 | 3b — Venv setup + `pip install -e .` | ✅ Complete |
 | 3c — `mm_encoder_attention.py` port | ✅ Complete (turned out unnecessary) |
 | 4 — First `vllm serve` boot on single B70 | ✅ Complete |
-| 5 — TP scaling (TP=2, TP=4) | 🚫 Blocked by [intel/compute-runtime#921](https://github.com/intel/compute-runtime/issues/921) |
+| 5 — TP=2 scaling | ✅ Complete (2026-05-23) — see [`FIXES.md`](FIXES.md) |
+| 6 — TP=4 scaling | 🟡 Untested; same fixes should generalise |
 
 ## Layout
 

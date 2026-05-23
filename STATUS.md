@@ -381,3 +381,14 @@ To rebuild without AOT we patched `CMakeLists.txt` and `cmake/utils.cmake` to wr
 Estimated 4-8 hours of focused investigation. Could yield a kernel-source workaround that ships on 2026.0.
 
 Then **Phase 5 — TP scaling** (TP=2, TP=4) once single-card serves work.
+
+## Phase 6 — TP>1 ✅ done (2026-05-23)
+
+**TP=2 serves and completes chat end-to-end.** Verified with Qwen3-0.6B, deterministic 40-token output at temperature=0. See [`FIXES.md`](FIXES.md) for the complete workaround log — environment vars, source patches, approaches we tried and rejected, and the debugging postmortem on what looked like a kernel bug but wasn't.
+
+Key wins on the way:
+- **Per-worker SYCL filtering via `ONEAPI_DEVICE_SELECTOR`** (NOT `ZE_AFFINITY_MASK` — that breaks oneCCL IPC). Patched into `multiproc_executor.py` before `proc.start()`.
+- **Three `local_rank` call sites in `xpu_worker.py`** had to be corrected to use `self.device.index` once per-worker filtering renumbered the visible device list to start at 0.
+- **NEO compiler cache poisoning + `PYTHONFAULTHANDLER=1`** turned out to be critical debugging tools — a bare `!!! Segfault !!!` line was masking a plain Python `RuntimeError` from the device-index bug.
+
+TP=4 untested; same set of fixes should generalise straight-forwardly. Worth re-running the test matrix once we touch a larger model.

@@ -1,0 +1,30 @@
+diff --git a/vllm/v1/executor/multiproc_executor.py b/vllm/v1/executor/multiproc_executor.py
+index f9b771540..797aab5ba 100644
+--- a/vllm/v1/executor/multiproc_executor.py
++++ b/vllm/v1/executor/multiproc_executor.py
+@@ -674,7 +674,24 @@ class WorkerProc:
+             daemon=True,
+         )
+ 
+-        proc.start()
++        # WORKAROUND (vllm-b70): on Battlemage / oneAPI 2026.0, when SYCL has
++        # multiple GPUs in its device list, kernel JIT (urProgramBuildExp /
++        # urProgramLinkExp) segfaults on first dispatch. Per-worker filter at
++        # the SYCL/UR layer via ONEAPI_DEVICE_SELECTOR. CRITICAL: do NOT use
++        # ZE_AFFINITY_MASK to hide devices at the Level Zero layer — that
++        # breaks cross-worker IPC handles needed for oneCCL allreduce.
++        # ONEAPI_DEVICE_SELECTOR only filters SYCL's view; L0 still sees both
++        # cards so zeMemOpenIpcHandle can translate sender's handle in
++        # receiver's context.
++        _saved_ods = os.environ.get("ONEAPI_DEVICE_SELECTOR")
++        os.environ["ONEAPI_DEVICE_SELECTOR"] = f"level_zero:{local_rank}"
++        try:
++            proc.start()
++        finally:
++            if _saved_ods is None:
++                os.environ.pop("ONEAPI_DEVICE_SELECTOR", None)
++            else:
++                os.environ["ONEAPI_DEVICE_SELECTOR"] = _saved_ods
+         # Close child ends of pipes here in the parent
+         ready_writer.close()
+         death_reader.close()
