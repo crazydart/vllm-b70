@@ -1,0 +1,25 @@
+vllm-b70
+Copyright 2026 the vllm-b70 contributors
+
+This product is a derivative work that depends on and redistributes
+patches from:
+
+  vllm-project/vllm
+  Copyright the vLLM team
+  https://github.com/vllm-project/vllm
+  Licensed under the Apache License, Version 2.0.
+
+  intel/llm-scaler (the `vllm/patches/` directory therein)
+  Copyright Intel Corporation
+  https://github.com/intel/llm-scaler
+  Licensed under the Apache License, Version 2.0.
+
+  vllm-project/vllm-xpu-kernels
+  Copyright the vLLM team
+  https://github.com/vllm-project/vllm-xpu-kernels
+  Licensed under the Apache License, Version 2.0.
+
+Patches under `patches/raw/` are unmodified Apache 2.0 source from
+intel/llm-scaler. The exclude list, apply script, and analysis
+documents in this repository are original work by the vllm-b70
+contributors and are also licensed under Apache 2.0.

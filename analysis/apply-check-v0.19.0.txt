@@ -1,0 +1,164 @@
+error: patch failed: benchmarks/kernels/benchmark_moe.py:643
+error: benchmarks/kernels/benchmark_moe.py: patch does not apply
+error: patch failed: benchmarks/kernels/benchmark_moe_permute_unpermute.py:330
+error: benchmarks/kernels/benchmark_moe_permute_unpermute.py: patch does not apply
+error: patch failed: docker/Dockerfile.xpu:1
+error: docker/Dockerfile.xpu: patch does not apply
+error: patch failed: docs/features/quantization/fp8.md:139
+error: docs/features/quantization/fp8.md: patch does not apply
+error: patch failed: docs/features/tool_calling.md:369
+error: docs/features/tool_calling.md: patch does not apply
+error: patch failed: docs/models/supported_models.md:665
+error: docs/models/supported_models.md: patch does not apply
+error: patch failed: examples/offline_inference/vision_language.py:1888
+error: examples/offline_inference/vision_language.py: patch does not apply
+error: patch failed: requirements/common.txt:32
+error: requirements/common.txt: patch does not apply
+error: patch failed: requirements/nightly_torch_test.txt:25
+error: requirements/nightly_torch_test.txt: patch does not apply
+error: patch failed: requirements/test.in:33
+error: requirements/test.in: patch does not apply
+error: patch failed: requirements/test.txt:31
+error: requirements/test.txt: patch does not apply
+error: patch failed: requirements/xpu.txt:9
+error: requirements/xpu.txt: patch does not apply
+error: tests/entrypoints/openai/test_translation_validation.py: No such file or directory
+error: patch failed: tests/models/multimodal/generation/test_whisper.py:176
+error: tests/models/multimodal/generation/test_whisper.py: patch does not apply
+error: patch failed: tests/models/registry.py:266
+error: tests/models/registry.py: patch does not apply
+error: tests/quantization/test_ipex_quant.py: No such file or directory
+error: tests/v1/e2e/test_correctness_sliding_window.py: No such file or directory
+error: tests/v1/e2e/test_spec_decode.py: No such file or directory
+error: tests/v1/kv_connector/nixl_integration/run_xpu_disagg_accuracy_test.sh: already exists in working directory
+error: patch failed: tests/v1/kv_offload/test_cpu_gpu.py:10
+error: tests/v1/kv_offload/test_cpu_gpu.py: patch does not apply
+error: patch failed: tests/v1/kv_offload/test_cpu_offloading.py:14
+error: tests/v1/kv_offload/test_cpu_offloading.py: patch does not apply
+error: vllm/_ipex_ops.py: No such file or directory
+error: vllm/attention/layer.py: No such file or directory
+error: patch failed: vllm/config/model.py:77
+error: vllm/config/model.py: patch does not apply
+error: patch failed: vllm/config/multimodal.py:55
+error: vllm/config/multimodal.py: patch does not apply
+error: patch failed: vllm/config/speculative.py:32
+error: vllm/config/speculative.py: patch does not apply
+error: patch failed: vllm/config/vllm.py:559
+error: vllm/config/vllm.py: patch does not apply
+error: patch failed: vllm/connections.py:3
+error: vllm/connections.py: patch does not apply
+error: patch failed: vllm/distributed/device_communicators/xpu_communicator.py:22
+error: vllm/distributed/device_communicators/xpu_communicator.py: patch does not apply
+error: patch failed: vllm/engine/arg_utils.py:455
+error: vllm/engine/arg_utils.py: patch does not apply
+error: patch failed: vllm/envs.py:252
+error: vllm/envs.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/attention/mm_encoder_attention.py:33
+error: vllm/model_executor/layers/attention/mm_encoder_attention.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/fla/ops/chunk.py:12
+error: vllm/model_executor/layers/fla/ops/chunk.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/fla/ops/layernorm_guard.py:20
+error: vllm/model_executor/layers/fla/ops/layernorm_guard.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/fla/ops/utils.py:105
+error: vllm/model_executor/layers/fla/ops/utils.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/layernorm.py:432
+error: vllm/model_executor/layers/layernorm.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/mamba/abstract.py:43
+error: vllm/model_executor/layers/mamba/abstract.py: patch does not apply
+error: patch failed: vllm/model_executor/layers/quantization/__init__.py:39
+error: vllm/model_executor/layers/quantization/__init__.py: patch does not apply
+error: vllm/model_executor/layers/quantization/auto_round.py: No such file or directory
+error: patch failed: vllm/model_executor/layers/quantization/fp8.py:185
+error: vllm/model_executor/layers/quantization/fp8.py: patch does not apply
+error: vllm/model_executor/layers/quantization/ipex_quant.py: No such file or directory
+error: patch failed: vllm/model_executor/layers/rotary_embedding/base.py:237
+error: vllm/model_executor/layers/rotary_embedding/base.py: patch does not apply
+error: patch failed: vllm/model_executor/model_loader/utils.py:13
+error: vllm/model_executor/model_loader/utils.py: patch does not apply
+error: patch failed: vllm/model_executor/models/config.py:410
+error: vllm/model_executor/models/config.py: patch does not apply
+error: patch failed: vllm/model_executor/models/deepencoder.py:80
+error: vllm/model_executor/models/deepencoder.py: patch does not apply
+error: vllm/model_executor/models/deepencoder2.py: already exists in working directory
+error: patch failed: vllm/model_executor/models/deepseek_ocr.py:52
+error: vllm/model_executor/models/deepseek_ocr.py: patch does not apply
+error: vllm/model_executor/models/deepseek_ocr2.py: already exists in working directory
+error: patch failed: vllm/model_executor/models/ernie45_vl.py:154
+error: vllm/model_executor/models/ernie45_vl.py: patch does not apply
+error: patch failed: vllm/model_executor/models/ernie45_vl_moe.py:352
+error: vllm/model_executor/models/ernie45_vl_moe.py: patch does not apply
+error: patch failed: vllm/model_executor/models/glm4_1v.py:306
+error: vllm/model_executor/models/glm4_1v.py: patch does not apply
+error: vllm/model_executor/models/glm4_moe_lite.py: already exists in working directory
+error: vllm/model_executor/models/glm4_moe_lite_mtp.py: already exists in working directory
+error: patch failed: vllm/model_executor/models/glm4_moe_mtp.py:21
+error: vllm/model_executor/models/glm4_moe_mtp.py: patch does not apply
+error: patch failed: vllm/model_executor/models/glm4v.py:24
+error: vllm/model_executor/models/glm4v.py: patch does not apply
+error: patch failed: vllm/model_executor/models/idefics2_vision_model.py:30
+error: vllm/model_executor/models/idefics2_vision_model.py: patch does not apply
+error: patch failed: vllm/model_executor/models/interfaces.py:953
+error: vllm/model_executor/models/interfaces.py: patch does not apply
+error: patch failed: vllm/model_executor/models/intern_vit.py:24
+error: vllm/model_executor/models/intern_vit.py: patch does not apply
+error: patch failed: vllm/model_executor/models/internvl.py:22
+error: vllm/model_executor/models/internvl.py: patch does not apply
+error: patch failed: vllm/model_executor/models/minicpmv.py:1047
+error: vllm/model_executor/models/minicpmv.py: patch does not apply
+error: patch failed: vllm/model_executor/models/phi4mm_audio.py:587
+error: vllm/model_executor/models/phi4mm_audio.py: patch does not apply
+error: patch failed: vllm/model_executor/models/qwen2_5_vl.py:354
+error: vllm/model_executor/models/qwen2_5_vl.py: patch does not apply
+error: patch failed: vllm/model_executor/models/qwen2_vl.py:329
+error: vllm/model_executor/models/qwen2_vl.py: patch does not apply
+error: vllm/model_executor/models/qwen3_5.py: already exists in working directory
+error: vllm/model_executor/models/qwen3_5_mtp.py: already exists in working directory
+error: vllm/model_executor/models/qwen3_asr.py: already exists in working directory
+error: patch failed: vllm/model_executor/models/qwen3_moe.py:64
+error: vllm/model_executor/models/qwen3_moe.py: patch does not apply
+error: patch failed: vllm/model_executor/models/qwen3_next.py:104
+error: vllm/model_executor/models/qwen3_next.py: patch does not apply
+error: patch failed: vllm/model_executor/models/qwen3_vl_moe.py:191
+error: vllm/model_executor/models/qwen3_vl_moe.py: patch does not apply
+error: patch failed: vllm/model_executor/models/registry.py:112
+error: vllm/model_executor/models/registry.py: patch does not apply
+error: patch failed: vllm/model_executor/models/siglip.py:403
+error: vllm/model_executor/models/siglip.py: patch does not apply
+error: vllm/multimodal/processing.py: No such file or directory
+error: patch failed: vllm/multimodal/utils.py:9
+error: vllm/multimodal/utils.py: patch does not apply
+error: patch failed: vllm/platforms/xpu.py:6
+error: vllm/platforms/xpu.py: patch does not apply
+error: patch failed: vllm/tokenizers/registry.py:34
+error: vllm/tokenizers/registry.py: patch does not apply
+error: patch failed: vllm/transformers_utils/chat_templates/registry.py:34
+error: vllm/transformers_utils/chat_templates/registry.py: patch does not apply
+error: patch failed: vllm/transformers_utils/config.py:96
+error: vllm/transformers_utils/config.py: patch does not apply
+error: patch failed: vllm/transformers_utils/configs/__init__.py:49
+error: vllm/transformers_utils/configs/__init__.py: patch does not apply
+error: vllm/transformers_utils/configs/qwen3_asr.py: already exists in working directory
+error: patch failed: vllm/transformers_utils/model_arch_config_convertor.py:369
+error: vllm/transformers_utils/model_arch_config_convertor.py: patch does not apply
+error: patch failed: vllm/transformers_utils/processors/deepseek_ocr.py:1
+error: vllm/transformers_utils/processors/deepseek_ocr.py: patch does not apply
+error: vllm/transformers_utils/processors/qwen3_asr.py: already exists in working directory
+error: patch failed: vllm/utils/network_utils.py:11
+error: vllm/utils/network_utils.py: patch does not apply
+error: patch failed: vllm/v1/attention/backends/flash_attn.py:39
+error: vllm/v1/attention/backends/flash_attn.py: patch does not apply
+error: patch failed: vllm/v1/attention/backends/gdn_attn.py:93
+error: vllm/v1/attention/backends/gdn_attn.py: patch does not apply
+error: patch failed: vllm/v1/core/encoder_cache_manager.py:357
+error: vllm/v1/core/encoder_cache_manager.py: patch does not apply
+error: vllm/v1/kv_offload/cpu.py: No such file or directory
+error: patch failed: vllm/v1/kv_offload/worker/cpu_gpu.py:5
+error: vllm/v1/kv_offload/worker/cpu_gpu.py: patch does not apply
+error: patch failed: vllm/v1/spec_decode/eagle.py:1040
+error: vllm/v1/spec_decode/eagle.py: patch does not apply
+error: patch failed: vllm/v1/worker/gpu_model_runner.py:431
+error: vllm/v1/worker/gpu_model_runner.py: patch does not apply
+error: patch failed: vllm/v1/worker/utils.py:354
+error: vllm/v1/worker/utils.py: patch does not apply
+error: patch failed: vllm/v1/worker/xpu_worker.py:67
+error: vllm/v1/worker/xpu_worker.py: patch does not apply

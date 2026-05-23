@@ -1,0 +1,30 @@
+# Cloned upstream repos (not redistributed; users clone themselves)
+upstream/
+intel-fork/
+vllm-xpu-kernels/
+
+# Build artifacts (full vllm checkout + venvs; large + machine-specific)
+build/
+
+# Notes scratchpad (working memos, not for publication)
+notes/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log

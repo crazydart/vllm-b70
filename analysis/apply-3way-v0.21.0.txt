@@ -1,0 +1,137 @@
+/home/player1/vllm-b70/patches/raw/vllm_for_multi_arc.patch:24: trailing whitespace.
+      - '**release**'  
+/home/player1/vllm-b70/patches/raw/vllm_for_multi_arc.patch:25: trailing whitespace.
+    types: [opened, synchronize, reopened]  # 
+/home/player1/vllm-b70/patches/raw/vllm_for_multi_arc.patch:31: trailing whitespace.
+        (github.event_name == 'issue_comment' && 
+/home/player1/vllm-b70/patches/raw/vllm_for_multi_arc.patch:34: trailing whitespace.
+    runs-on: BMG 
+/home/player1/vllm-b70/patches/raw/vllm_for_multi_arc.patch:54: trailing whitespace.
+        fetch-depth: 0  # 
+Applied patch to '.buildkite/lm-eval-harness/run-lm-eval-gsm-vllm-baseline.sh' cleanly.
+Falling back to direct application...
+Falling back to direct application...
+Applied patch to 'benchmarks/backend_request_func.py' cleanly.
+Applied patch to 'benchmarks/kernels/benchmark_moe.py' cleanly.
+Applied patch to 'benchmarks/kernels/benchmark_moe_permute_unpermute.py' cleanly.
+Applied patch to 'docker/Dockerfile.xpu' with conflicts.
+Applied patch to 'docs/features/quantization/fp8.md' with conflicts.
+Applied patch to 'docs/features/tool_calling.md' cleanly.
+Applied patch to 'docs/models/supported_models.md' cleanly.
+Falling back to direct application...
+Falling back to direct application...
+error: examples/offline_inference/vision_language.py: does not exist in index
+error: examples/online_serving/structured_outputs/structured_outputs.py: does not exist in index
+Applied patch to 'requirements/common.txt' with conflicts.
+error: requirements/nightly_torch_test.txt: does not exist in index
+error: requirements/test.in: does not exist in index
+error: requirements/test.txt: does not exist in index
+Applied patch to 'requirements/xpu.txt' with conflicts.
+error: tests/entrypoints/openai/test_translation_validation.py: does not exist in index
+Applied patch to 'tests/models/multimodal/generation/test_whisper.py' cleanly.
+Applied patch to 'tests/models/registry.py' with conflicts.
+Applied patch to 'tests/quantization/test_cpu_offload.py' cleanly.
+error: tests/quantization/test_ipex_quant.py: does not exist in index
+error: tests/v1/e2e/test_correctness_sliding_window.py: does not exist in index
+error: tests/v1/e2e/test_spec_decode.py: does not exist in index
+Performing three-way merge...
+Applied patch to 'tests/v1/kv_connector/nixl_integration/run_xpu_disagg_accuracy_test.sh' with conflicts.
+error: tests/v1/kv_offload/test_cpu_gpu.py: does not exist in index
+error: tests/v1/kv_offload/test_cpu_offloading.py: does not exist in index
+error: vllm/_ipex_ops.py: does not exist in index
+error: vllm/attention/layer.py: does not exist in index
+Applied patch to 'vllm/benchmarks/serve.py' cleanly.
+Applied patch to 'vllm/config/model.py' with conflicts.
+Applied patch to 'vllm/config/multimodal.py' with conflicts.
+Applied patch to 'vllm/config/speculative.py' with conflicts.
+Applied patch to 'vllm/config/vllm.py' with conflicts.
+Applied patch to 'vllm/connections.py' with conflicts.
+Applied patch to 'vllm/distributed/device_communicators/xpu_communicator.py' with conflicts.
+Applied patch to 'vllm/engine/arg_utils.py' cleanly.
+Falling back to direct application...
+Applied patch to 'vllm/envs.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/attention/mm_encoder_attention.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/fla/ops/chunk.py' cleanly.
+Applied patch to 'vllm/model_executor/layers/fla/ops/layernorm_guard.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/fla/ops/utils.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/fused_moe/layer.py' cleanly.
+Applied patch to 'vllm/model_executor/layers/layernorm.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/linear.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/mamba/abstract.py' with conflicts.
+Applied patch to 'vllm/model_executor/layers/mla.py' cleanly.
+Applied patch to 'vllm/model_executor/layers/quantization/__init__.py' with conflicts.
+error: vllm/model_executor/layers/quantization/auto_round.py: does not exist in index
+Applied patch to 'vllm/model_executor/layers/quantization/fp8.py' with conflicts.
+error: vllm/model_executor/layers/quantization/ipex_quant.py: does not exist in index
+Falling back to direct application...
+Applied patch to 'vllm/model_executor/layers/quantization/utils/fp8_utils.py' cleanly.
+Applied patch to 'vllm/model_executor/layers/quantization/utils/gptq_utils.py' cleanly.
+Applied patch to 'vllm/model_executor/layers/rotary_embedding/base.py' with conflicts.
+Applied patch to 'vllm/model_executor/model_loader/utils.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/config.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/deepencoder.py' cleanly.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/deepencoder2.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/deepseek_ocr.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/deepseek_ocr2.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/ernie45_vl.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/ernie45_vl_moe.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/glm4.py' cleanly.
+Applied patch to 'vllm/model_executor/models/glm4_1v.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/glm4_moe.py' cleanly.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/glm4_moe_lite.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/glm4_moe_lite_mtp.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/glm4_moe_mtp.py' cleanly.
+Applied patch to 'vllm/model_executor/models/glm4v.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/idefics2_vision_model.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/interfaces.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/intern_vit.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/internvl.py' cleanly.
+Applied patch to 'vllm/model_executor/models/minicpmv.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/phi4mm_audio.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/qwen2_5_vl.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/qwen2_vl.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/qwen3_5.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/qwen3_5_mtp.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/model_executor/models/qwen3_asr.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/qwen3_moe.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/qwen3_next.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/qwen3_vl_moe.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/registry.py' with conflicts.
+Applied patch to 'vllm/model_executor/models/siglip.py' with conflicts.
+error: vllm/multimodal/processing.py: does not exist in index
+Applied patch to 'vllm/multimodal/utils.py' with conflicts.
+Applied patch to 'vllm/platforms/xpu.py' with conflicts.
+Falling back to direct application...
+Applied patch to 'vllm/tokenizers/mistral.py' with conflicts.
+Applied patch to 'vllm/tokenizers/registry.py' with conflicts.
+Applied patch to 'vllm/transformers_utils/chat_templates/registry.py' cleanly.
+Applied patch to 'vllm/transformers_utils/config.py' with conflicts.
+Applied patch to 'vllm/transformers_utils/configs/__init__.py' with conflicts.
+Performing three-way merge...
+Applied patch to 'vllm/transformers_utils/configs/qwen3_asr.py' with conflicts.
+Applied patch to 'vllm/transformers_utils/model_arch_config_convertor.py' cleanly.
+Applied patch to 'vllm/transformers_utils/processors/deepseek_ocr.py' cleanly.
+Performing three-way merge...
+Applied patch to 'vllm/transformers_utils/processors/qwen3_asr.py' with conflicts.
+Falling back to direct application...
+Applied patch to 'vllm/utils/network_utils.py' with conflicts.
+Applied patch to 'vllm/v1/attention/backends/fa_utils.py' cleanly.
+Applied patch to 'vllm/v1/attention/backends/flash_attn.py' with conflicts.
+Applied patch to 'vllm/v1/attention/backends/gdn_attn.py' cleanly.
+Applied patch to 'vllm/v1/core/encoder_cache_manager.py' with conflicts.
+Applied patch to 'vllm/v1/core/kv_cache_utils.py' cleanly.
+error: vllm/v1/kv_offload/cpu.py: does not exist in index
+error: vllm/v1/kv_offload/worker/cpu_gpu.py: does not exist in index
+Falling back to direct application...
+Applied patch to 'vllm/v1/spec_decode/eagle.py' with conflicts.
+Applied patch to 'vllm/v1/worker/gpu_model_runner.py' with conflicts.
+Applied patch to 'vllm/v1/worker/gpu_worker.py' cleanly.
+Applied patch to 'vllm/v1/worker/utils.py' with conflicts.
+Applied patch to 'vllm/v1/worker/xpu_worker.py' with conflicts.
