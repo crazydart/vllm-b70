@@ -85,6 +85,22 @@ Worked through 50 conflict files in 4 batches; each batch sub-agent-reviewed bef
 
 **Only remaining conflict: `vllm/model_executor/layers/attention/mm_encoder_attention.py`** (8 markers — the IPEX→`vllm_xpu_kernels.flash_attn_varlen_func` rewrite). That's Phase 3c (its own task because it needs real porting code, not just merge picking).
 
+### Phase 3c ✅ done — and was actually trivial
+
+The 8 conflicts in `mm_encoder_attention.py` all resolved take-ours. **Upstream v0.19 already integrates `vllm_xpu_kernels`** — the IPEX→xpu-kernels port we anticipated wasn't actually needed. The routing chain on XPU is:
+
+```
+mm_encoder_attention._forward_fa (FLASH_ATTN)
+  → vit_flash_attn_wrapper (vllm/v1/attention/ops/vit_attn_wrappers.py)
+  → flash_attn_varlen_func (vllm/v1/attention/backends/fa_utils.py)
+  → on XPU: xpu_ops.flash_attn_varlen_func (vllm/_xpu_ops.py)
+  → vllm_xpu_kernels.flash_attn_interface.flash_attn_varlen_func
+```
+
+So Intel's `_forward_ipex` method becomes dead code we don't need. Bonus: taking Intel's would actually have broken at import (their hunk calls `get_vit_attn_backend(attn_backend_override=...)` but upstream's public function doesn't accept that kwarg).
+
+**Phase 3 status: complete. Zero conflict markers in the staged tree.**
+
 ### Phase 3b — venv setup + build (NEXT after 3c)
 
 - Set up `build/v0.19-torch210/venv/` with torch 2.10.0+xpu, triton-xpu 3.6.0 (matches `[[feedback_triton_xpu_headers]]`)
@@ -99,4 +115,10 @@ Rewrite Intel's `_forward_ipex` method (uses `vllm._ipex_ops.ipex_ops.varlen_att
 
 ## Next action
 
-**Phase 3c** — port `vllm/model_executor/layers/attention/mm_encoder_attention.py`'s `_forward_ipex` to use `vllm_xpu_kernels.flash_attn_interface.flash_attn_varlen_func`. Then `pip install vllm-xpu-kernels` at pin `4c83144` with AOT patch, set up venv, `pip install -e .` on resolved vLLM tree.
+**Phase 3b** — venv setup + build:
+1. Create `build/v0.19-torch210/venv/` (uv venv per AGENTS.md), install `torch==2.10.0+xpu` + `triton-xpu==3.6.0` + `requirements/xpu.txt`.
+2. Build `vllm-xpu-kernels` from source at pinned commit `4c83144` with the AOT patch applied (Battlemage targets only).
+3. `VLLM_TARGET_DEVICE=xpu pip install -e .` on the resolved vLLM tree.
+4. Capture build errors, iterate.
+
+After that: try `vllm serve` against a small local model (gate per [[feedback_no_unsolicited_model_runs]] — explicit ask required).
