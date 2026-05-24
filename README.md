@@ -127,6 +127,27 @@ Full port recipe + the two required fixes: [`PORT-0.21.md`](PORT-0.21.md).
 - **`ONEAPI_DEVICE_SELECTOR=*:gpu`** (not `level_zero:N` — breaks triton's FLA probe).
 - **Never run two XPU processes at once** (serve + any `torch.xpu` script/install) — races the shared triton/NEO cache and corrupts both.
 
+## Future work
+
+- **Distributable Docker image** (the big one). A container is a *better* delivery
+  vehicle than the loose wheels here, because it can **bundle oneAPI 2026.0** —
+  eliminating the "your system oneAPI must match" portability problem. Sketch:
+  base = Intel oneAPI 2026.0 runtime + Python 3.12 → our torch 2.12 + triton-xpu +
+  vllm-xpu-kernels + stock vLLM 0.21 → entrypoint with the validated config baked
+  in. Host still needs the `xe` kernel driver + `--device /dev/dri` (like NVIDIA
+  containers need their host driver). **Key idea:** an entrypoint that
+  **auto-detects the device IP version** and sets `TRITON_INTEL_DEVICE_ARCH`
+  automatically — removing the `bmg-g21`-vs-`20.2.0` footgun and making one image
+  work across Battlemage steppings. Would stand apart from Intel's container by
+  being stock upstream vLLM, no IPEX, current. (Gate before building: confirm the
+  compiled+`20.2.0` config on the transformers-v5 base.)
+- **Promote transformers v5 to the single standard venv** — one stack for
+  everything (Qwen + MoE + INT4 + Gemma-4); v4 is deprecated (removed in vLLM v0.24).
+- **Upstream kernel gaps** (contribution opportunities): speculative decode / **MTP
+  for hybrid GDN** models on XPU (`_xpu_ops.py` `# TODO: xpu does not support
+  speculative decoding yet`), and an **unquantized fused-MoE XPU backend for
+  Gemma-4** MoE (Qwen MoE already works).
+
 ## Acknowledgements
 
 - The [Intel `llm-scaler` team][llm-scaler] for the original B70 enablement work (now largely upstream).
