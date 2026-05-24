@@ -41,7 +41,7 @@ vLLM. We instead run current upstream:
 
 ## Test hardware
 
-Everything here was developed and validated on a single box (host `vllm2`):
+Everything here was developed and validated on a single box:
 
 | Component | Spec |
 |---|---|
