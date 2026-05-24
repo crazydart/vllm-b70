@@ -81,6 +81,8 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
 - MoE → `unsloth/Qwen3.6-35B-A3B` (3B active / 35B total) — exercises the XPU fused-MoE path.
 - MTP + AWQ → `hampsonw/Qwen3.6-27B-AWQ-BF16-INT4-mtp-bf16` — tests `--speculative-config` MTP
   (potential decode speedup) AND AWQ-INT4 quant on XPU (likely unsupported — useful either way).
+- MoE + MTP + ternary → `YTan2000/Qwen3.6-35B-A3B-MTP-TQ3_4S` — ⚠️ `TQ3_4S` looks like a GGUF
+  ternary quant → **llama.cpp-SYCL** target, not vLLM-XPU (no GGUF kernels); verify format first.
 
 ## Performance (TP=4 eager, llama-benchy, identical across v0.20/v0.21)
 
