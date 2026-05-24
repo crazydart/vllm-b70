@@ -7,6 +7,23 @@
 
 ---
 
+> ## ✅ CURRENT STATE (2026-05-24) — goal achieved
+>
+> **Qwen3.6-27B (hybrid) serves on STOCK upstream vLLM v0.21.0**, TP=4, eager,
+> zero source patches, on a from-source torch 2.12 / triton-xpu 3.6 /
+> vllm-xpu-kernels runtime (oneAPI 2026.0). v0.20.2 also works. Feature suite
+> 10/10. The original "carry Intel's v0.19 patch series" approach (the phase
+> tracker below) is **obsolete** — upstream v0.20 absorbed the B70 hybrid work.
+>
+> Canonical docs: [`README.md`](README.md), [`PORT-0.21.md`](PORT-0.21.md),
+> [`PORT-0.20.md`](PORT-0.20.md), [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md),
+> [`FIXES.md`](FIXES.md). **Caveat:** EAGER only (compiled path corrupts);
+> v0.19 is not correctness-reliable for the hybrid model.
+>
+> _Everything below is the historical Phase-1→6 tracker, kept for provenance._
+
+---
+
 ## Current phase
 
 **Phase 1 — Recon.** ✅ Largely complete. See [`analysis/initial-recon.md`](analysis/initial-recon.md) for full findings.
