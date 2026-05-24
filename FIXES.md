@@ -374,8 +374,8 @@ The 2026.0 system `libur_loader` *does* export that symbol. The problem is load 
 
 **Why this is a wall.** All current `torch==2.x+xpu` wheels (2.10, 2.11, 2.12 verified by dry-run) pin to `dpcpp-cpp-rt==2025.3.x` / `intel-cmplr-lib-ur==2025.3.x` — i.e. they bundle `libsycl.so.8` from the 2025.3 era. Our host oneAPI is 2026.0 (`libsycl.so.9`). triton-xpu 3.6.0 is built against 2026.0. There is no published torch+xpu wheel built against 2026.0, so triton 3.6.0 + torch from PyPI cannot coexist on this stack.
 
-**Realistic paths to unblock hybrid models** (none implemented yet):
-1. Build `torch+xpu` from source against system oneAPI 2026.0 (matches `libsycl.so.9`, lets triton-xpu 3.6.0 import cleanly). Pricey: ~hours of build time + debugging.
+**Realistic paths to unblock hybrid models** (none completed yet):
+1. **Build `torch+xpu` from source against system oneAPI 2026.0** — attempted 2026-05-23/24. Cmake configure works (SYCL_LIBRARY resolved to system `/opt/intel/oneapi/compiler/2026.0/lib/libsycl.so` exactly as required). Compile reached 2528/2601 (97%) before failing on missing torch-xpu-ops headers (`ATen/native/xpu/Blas.h`, `ATen/native/transformers/xpu/flash_attn/utils.h`). Root cause: v2.12.0's `third_party/xpu.txt` is a SHA-pin rather than a real submodule, and the auto-clone hook didn't fire under `python setup.py develop`. Fix documented in `build/torch-src-2026/TIMING.md` — manually clone `intel/torch-xpu-ops` at the pinned SHA before re-running. Full first attempt was 63m50s wall (autograd-codegen TUs dominated). Build tree + cmake cache preserved at `build/torch-src-2026/` (5.5 GiB on disk) so resume only needs to redo the few failing targets.
 2. Write torch-native fallbacks for the FLA ops that `gdn_linear_attn.py:forward_native` invokes (`chunk_gated_delta_rule`, `l2norm_fwd`, `solve_tril`, etc.). Roughly 200-500 LoC of Mamba-scan code, with correctness validation. Slow but standalone.
 3. Use Intel's `intel/llm-scaler-vllm` container for hybrid models — Intel pre-resolved this version mismatch in their published image. Gives up host-native serving.
 
