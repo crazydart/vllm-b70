@@ -75,14 +75,29 @@ Full port recipe + the two required fixes: [`PORT-0.21.md`](PORT-0.21.md).
 
 | Item | State |
 |---|---|
-| v0.19.0 (Intel patches carried) | ⚠️ Deprecated — serves but **not correctness-reliable** for the hybrid 27B (state corruption after ~1 req) |
-| v0.20.2 port (stock, zero patches) | ✅ Done — [`PORT-0.20.md`](PORT-0.20.md) |
 | v0.21.0 port (stock, zero patches) | ✅ **Done & recommended** — [`PORT-0.21.md`](PORT-0.21.md) |
-| TP=4, Qwen3.6-27B hybrid serve | ✅ Working (eager), feature-validated |
-| Feature/correctness matrix | ✅ [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) |
-| torch.compile path | ✅ **Fixed** — was corrupting with wrong arch (`bmg-g21`); `TRITON_INTEL_DEVICE_ARCH=20.2.0` makes it correct + ~55% faster |
+| v0.20.2 port (stock, zero patches) | ✅ Done — [`PORT-0.20.md`](PORT-0.20.md) |
+| v0.19.0 (Intel patches carried) | ⚠️ Deprecated — **not correctness-reliable** for the hybrid 27B (state corruption after ~1 req) |
+| torch.compile path | ✅ **Fixed** — `bmg-g21` (wrong stepping) corrupted; `TRITON_INTEL_DEVICE_ARCH=20.2.0` makes it correct + ~55% faster |
 
-Perf (TP=4, compiled+20.2.0): ~188 t/s prefill (pp512), **~5.1 t/s decode** (tg64 c1) — vs ~3.3 eager.
+**Model/feature coverage** (vLLM 0.21, B70; details in [`BENCHMARKS.md`](BENCHMARKS.md) / [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md)):
+
+| | Status |
+|---|---|
+| Qwen3.6-27B hybrid (bf16) | ✅ compiled+20.2.0, **~5.1 t/s** decode, 188 prefill, TP=4 |
+| Qwen3.6-35B-A3B **MoE** | ✅ correct, **572 t/s prefill** (sparsity), TP=4 |
+| Qwen3.6-27B **INT4** (compressed-tensors) | ✅ correct, runs on **2 cards** |
+| Gemma-4 **dense** (E4B/31B) | ✅ — requires **transformers v5** (v4 doesn't know `gemma4`) |
+| Gemma-4 **MoE** (26B-A4B) | ❌ XPU MoE-backend gap (Qwen MoE works; gemma4 MoE doesn't) |
+| **MTP** / speculative decode | ❌ XPU GDN-kernel gap (not a transformers/v5 issue) |
+
+## How we got here (timeline)
+
+1. **Start — carry Intel's patches.** Built the hard part: from-source **torch 2.12 + triton-xpu 3.6 + vllm-xpu-kernels** on **oneAPI 2026.0** (published wheels bundle the wrong oneAPI / can't coexist with triton). Got Qwen3.6-27B (hybrid GDN+attn) serving on **v0.19** with 5 source patches, TP=2 → TP=4.
+2. **v0.20/v0.21 — the patches vanish.** Ported to v0.20.2 and found upstream had **absorbed all 5 patches** → stock source, **zero patches**. Same for **v0.21.0**. Port = reuse the runtime venv, `pip install -e .` stock vLLM.
+3. **The garbage scare → the key fix.** A correctness suite (`scripts/feature_test.py`) caught the `torch.compile` path degrading to garbage (`!!!!`) under load (and v0.19 being unreliable). Root cause: **wrong-stepping native codegen** — `bmg-g21` is IP 20.1.0, the B70 is 20.2.0. Fix: **`TRITON_INTEL_DEVICE_ARCH=20.2.0`** → compiled is correct **and ~55% faster decode**. (Side lesson: never run two XPU processes at once — it poisons the shared compile cache.)
+4. **Model-coverage campaign.** MoE ✅, INT4 ✅, Gemma-4 dense ✅ (needed transformers **v5**), Gemma-4 MoE ❌ and MTP ❌ (both XPU-kernel gaps — MTP is the "MTP broken on 0.21 for qwen" issue, *not* a v5 fix).
+5. **Shipped.** Prebuilt runtime as GitHub release [`b70-runtime-2026.0`](https://github.com/crazydart/vllm-b70/releases/tag/b70-runtime-2026.0); artifacts + compile caches backed up to NAS.
 
 ## Key docs
 
