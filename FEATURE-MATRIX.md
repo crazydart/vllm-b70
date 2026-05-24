@@ -59,6 +59,24 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
 - **GPU concurrency:** a single serve owns all 4 cards; do not run a second XPU
   process alongside it (corrupts the shared compile cache + running serve).
 
+## Untested capabilities (NOT validated — do not assume they work)
+
+- **MTP (multi-token prediction / self-speculative decode): NOT tested.** The
+  Qwen3.6-27B checkpoint **ships an MTP head** (`config.json`:
+  `mtp_num_hidden_layers: 1`), but every serve here ran **standard decode** — no
+  `--speculative-config` / MTP was enabled, so the MTP head sat unused. This is a
+  real missed opportunity: MTP self-speculation could lift the slow ~3.3 t/s
+  decode. But XPU MTP support is unverified, and MTP is known-buggy on the SYCL
+  side (see `~/docs/intel-stack/llama-cpp-sycl.md` MTP-SYCL note) — needs explicit
+  testing before relying on it.
+- **MoE (mixture of experts): NOT tested.** The 27B we validated is **dense**
+  (arch `Qwen3_5ForConditionalGeneration`, no expert/router config). vLLM has a
+  `Qwen3_5MoeForConditionalGeneration` path and the model zoo has a
+  **Qwen3.5-122B-A10B** (MoE), but no MoE model has been run on vLLM-B70 — the
+  XPU fused-MoE kernel path is unexercised here.
+- **Also untested:** speculative decoding (draft model), LoRA adapters, prefix
+  caching (`--enable-prefix-caching` was off), structured/guided output.
+
 ## Performance (TP=4 eager, llama-benchy, identical across v0.20/v0.21)
 
 | test | t/s |
