@@ -87,6 +87,7 @@ Perf (TP=4 eager): ~180 t/s prefill (pp512), ~3.3 t/s decode (tg64 c1).
 
 - [`PORT-0.21.md`](PORT-0.21.md) / [`PORT-0.20.md`](PORT-0.20.md) — how the ports were done (reusable for the next bump).
 - [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) — what works per version; the correctness caveats.
+- [`BENCHMARKS.md`](BENCHMARKS.md) — `llama-benchy` throughput per model × vLLM variant × GPU count.
 - [`FIXES.md`](FIXES.md) — every workaround (env, the torch-from-source build §B1, dead ends) — the migration reference.
 - `scripts/feature_test.py` — the functional/correctness suite (throughput benchmarks don't prove correctness).
 
