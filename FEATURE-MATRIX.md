@@ -77,6 +77,11 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
 - **Also untested:** speculative decoding (draft model), LoRA adapters, prefix
   caching (`--enable-prefix-caching` was off), structured/guided output.
 
+**Planned tests to fill these gaps:**
+- MoE → `unsloth/Qwen3.6-35B-A3B` (3B active / 35B total) — exercises the XPU fused-MoE path.
+- MTP + AWQ → `hampsonw/Qwen3.6-27B-AWQ-BF16-INT4-mtp-bf16` — tests `--speculative-config` MTP
+  (potential decode speedup) AND AWQ-INT4 quant on XPU (likely unsupported — useful either way).
+
 ## Performance (TP=4 eager, llama-benchy, identical across v0.20/v0.21)
 
 | test | t/s |
