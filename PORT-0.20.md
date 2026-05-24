@@ -130,9 +130,19 @@ purely inductor's **fused/compiled kernels** beating eager Python dispatch;
 the 27B can't fit: ~13 GiB weights/card × 4). The ocloc fix (Fix #1) is the
 prerequisite — without it the inductor path crashes at codegen.
 
-**Cost:** compiled startup ≈505 s (inductor compile, one-time, cached to NEO/
-inductor) vs ≈155 s eager. For a long-running serve this is paid once →
-**compiled is the recommended config** (and what the launcher now defaults to).
+**Cost:** compiled startup ≈505 s (inductor compile, one-time, cached) vs ≈155 s
+eager.
+
+> ⚠️ **CORRECTNESS — compiled is NOT safe (verified 2026-05-24).** The feature
+> suite (`feature_test.py`) exposed that the **compiled path degrades into
+> garbage output** (repeated `!!!!`, finish=length, on plain prompts) under
+> sustained load — it passed a fresh functional run, then on the next run
+> produced corrupt tokens with **no error in the serve log** (silent numerical/
+> state corruption). **EAGER passed the full suite 10/10** (basic, EOS, multi-
+> turn, streaming, correctness-at-length, batched 4/4, long-context recall@3818
+> tok, determinism, stop seqs). **→ EAGER is the recommended/default config.**
+> The +28% compiled numbers above stand as a perf ceiling, but are unusable until
+> the inductor-path corruption is root-caused. Results: `results/feature-test-v0.20-*.md`.
 
 **Caveat on the v0.19 column:** not apples-to-apples (Qwen3.5 vs 3.6, TP=2 vs 4).
 The prefill-at-c4 gap (245 vs ~184) is the TP=4 4-way allreduce overhead over
@@ -150,9 +160,11 @@ B70's interconnect not being repaid at short prompts / small batch.
 
 ## 6. Launcher
 `scripts/start-vllm-b70-qwen36-27b-tp4-v0.20.sh` — TP=4, 0.0.0.0:8080
-(OpenWebUI), both fixes baked in, **compiled (no `--enforce-eager`, util 0.80)**
-as the recommended default; eager fallback documented inline. Same oneAPI / CCL /
-`ONEAPI_DEVICE_SELECTOR=*:gpu` / `USE_LIBUV=0` env as v0.19.
+(OpenWebUI), **EAGER (util 0.85) as the safe default** (compiled corrupts — §4).
+`TRITON_INTEL_DEVICE_ARCH=bmg-g21` is still required even in eager (the one
+@torch.compile layer). Same oneAPI / CCL / `ONEAPI_DEVICE_SELECTOR=*:gpu` /
+`USE_LIBUV=0` env as v0.19. The compiled-path recipe is documented inline for
+experimentation only.
 
 ## 7. Next
 1. ~~Graph-mode experiment~~ — DONE (§4): compiled = +28% decode, now the default.

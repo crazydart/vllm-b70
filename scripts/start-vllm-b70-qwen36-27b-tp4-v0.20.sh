@@ -4,13 +4,15 @@
 # (no patches) on the from-source runtime stack (torch 2.12 / triton-xpu 3.6 /
 # vllm-xpu-kernels, all on oneAPI 2026.0 libsycl.so.9). Full write-up: PORT-0.20.md.
 #
-# RECOMMENDED config: torch.compile ON (NO --enforce-eager). Inductor-compiled
-# fused kernels give ~+28% decode (3.3 -> 4.3 t/s c1) and ~+25% prefill vs eager,
-# even though XPU cudagraph replay is unavailable at TP>1 (XPU can't capture the
-# cross-card comms -- see xpu.py:200 "XPU Graph doesn't support capture
-# communication ops"). Cost: ~505s startup (inductor compile, one-time/cached)
-# vs ~155s eager. For fast-startup debugging instead, add `--enforce-eager` and
-# bump `--gpu-memory-utilization` back to 0.85.
+# ⚠️ CONFIG = EAGER, and that is DELIBERATE (correctness). The torch.compile /
+# inductor path (dropping --enforce-eager) is ~+28% faster BUT was verified to
+# DEGRADE INTO GARBAGE OUTPUT (repeated "!!!!", finish=length) under sustained
+# load on this stack — it passed a fresh functional suite, then on the next run
+# produced corrupt tokens on plain prompts, with NO error in the log (silent
+# numerical/state corruption). EAGER passed the FULL feature suite 10/10 (incl.
+# long-context recall, batched correctness, EOS, streaming). So: eager is the
+# safe default; treat compiled as fast-but-unreliable until the inductor-path
+# corruption is root-caused. See results/feature-test-v0.20-*.md.
 
 set +eu
 source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1
@@ -20,22 +22,16 @@ export VLLM_TARGET_DEVICE=xpu
 export VLLM_WORKER_MULTIPROC_METHOD=spawn
 # from-source torch 2.12 has no libuv; TCPStore defaults to libuv -> DistStoreError
 export USE_LIBUV=0
-# Inert at TP>1 (cudagraph disabled by the comms limitation) but harmless; would
-# enable XPU graph capture at TP=1. Kept for documentation / single-card use.
-export VLLM_XPU_ENABLE_XPU_GRAPH=1
 
 unset ZE_AFFINITY_MASK
 # *:gpu (not level_zero:N): level_zero:N breaks triton's device probe at FLA-op
 # import; torch still enumerates the 4 level_zero cards under *:gpu.
 export ONEAPI_DEVICE_SELECTOR="*:gpu"
 
-# FIX #1 (replaces v0.19's P2 patch): triton-xpu 3.6's parse_device_arch() does
-# not recognize our B70's IP version (reports 20.2.0; triton's table only knows
-# bmg=20.1.0), so it returns an EMPTY device_arch -> `ocloc compile ... -device ''`
-# dies with `stoul` ("Internal Triton ZEBIN codegen error") on ANY torch._inductor
-# (torch.compile) native-codegen -- which is exactly what dropping --enforce-eager
-# triggers. (The triton.jit FLA/GDN path is unaffected: SPIR-V runtime L0 JIT, not
-# ocloc.) Forcing the arch fixes all inductor paths. Exact-IP alt: 20.2.0
+# REQUIRED even in eager: the one @torch.compile layer (vocab_parallel_embedding)
+# still goes through inductor->ocloc. triton-xpu 3.6's parse_device_arch() returns
+# empty for our B70 IP 20.2.0 -> `ocloc -device '' -> stoul` ZEBIN crash without
+# this. (Replaces v0.19's P2 source patch.) Exact-IP alt: 20.2.0
 export TRITON_INTEL_DEVICE_ARCH="bmg-g21"
 
 export CCL_ENABLE_SYCL_KERNELS=0
@@ -52,13 +48,13 @@ exec venv/bin/vllm serve /home/player1/models/qwen3.6-27b-bf16 \
   --port 8080 --host 0.0.0.0 \
   --dtype bfloat16 \
   --max-model-len 4096 \
-  --gpu-memory-utilization 0.80 \
+  --gpu-memory-utilization 0.85 \
+  --enforce-eager \
   --tensor-parallel-size 4 --pipeline-parallel-size 1
-# gpu-memory-utilization 0.80: the torch.compile/inductor path needs device
-# headroom for its compile+runtime workspace. v0.19 (P2: inductor OFF) ran 0.90;
-# eager-on-v0.20 ran 0.85; compiled-on-v0.20 needs 0.80 (0.85 risks the
-# UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY seen on first decode). KV cache is not the
-# binding constraint (hybrid mamba pages dominate; still ~106x concurrency @4096).
-# NOTE: NO --block-size flag -- v0.20's XPUPlatform.update_block_size_for_backend()
-# auto-aligns it (logs "Setting attention block size to 832 ...") -- this is what
-# v0.19's S5 patch + manual --block-size 784 did by hand.
+# --enforce-eager: correctness (see header). util 0.85 fits eager (compiled
+# needed 0.80 for inductor workspace; eager has only the one compiled layer).
+# NO --block-size flag: v0.20's XPUPlatform.update_block_size_for_backend()
+# auto-aligns it (logs "Setting attention block size to 832 ...") -- replaces
+# v0.19's S5 patch + manual --block-size 784.
+# To experiment with the faster (but corrupting) compiled path: drop
+# --enforce-eager, set util 0.80, add `export VLLM_XPU_ENABLE_XPU_GRAPH=1`.

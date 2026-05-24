@@ -1,5 +1,32 @@
 # Porting vllm-b70 from v0.19.0 → v0.21.0 — handoff & plan
 
+> ## ✅ STATUS: COMPLETED 2026-05-24 — v0.21.0 SERVES + VALIDATED
+>
+> Qwen3.6-27B (hybrid) serves on **stock vLLM v0.21.0**, TP=4, `0.0.0.0:8080`,
+> on the unchanged from-source runtime stack. **Zero source patches.** Same two
+> runtime fixes as v0.20 (they carried over unchanged):
+> - `TRITON_INTEL_DEVICE_ARCH=bmg-g21` (triton-xpu can't resolve B70 IP 20.2.0 →
+>   empty `ocloc -device` → ZEBIN crash on the inductor path)
+> - `--gpu-memory-utilization 0.85` + **EAGER** (`--enforce-eager`)
+> - **No `--block-size`** — v0.21 auto-aligns the hybrid page (KV cache 434,688
+>   tok, same as v0.20).
+>
+> **Validation (`results/`):** feature suite **10/10**, benchmark done. Perf
+> matches v0.20 eager: ~180 t/s prefill (pp512), ~3.3 t/s decode (tg64 c1).
+>
+> **Install:** `git clone -b v0.21.0 … build/v0.21`; `cp -a build/v0.20/venv
+> build/v0.21/venv`; `uv pip uninstall vllm`; `VLLM_TARGET_DEVICE=xpu uv pip
+> install -e build/v0.21 --no-deps --no-build-isolation`. Editable build ~9s.
+> Launcher: `scripts/start-vllm-b70-qwen36-27b-tp4-v0.21.sh`.
+>
+> **⚠️ Correctness caveats (see `FEATURE-MATRIX.md`):** EAGER only — the
+> compiled/torch.compile path corrupts output under load on all versions.
+> v0.19 is NOT correctness-reliable (hybrid-state corruption after ~1 request).
+>
+> The original pre-port plan is preserved below for reference.
+
+---
+
 **Written 2026-05-24** as a self-contained handoff so the port survives context
 compaction. Read this + `FIXES.md` and you have everything. Target:
 [vLLM v0.21.0](https://github.com/vllm-project/vllm/releases/tag/v0.21.0) (latest).

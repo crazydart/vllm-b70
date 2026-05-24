@@ -561,3 +561,34 @@ be obsolete** (upstream absorbed them). Result: Qwen3.6-27B TP=4 serves with
 
 ### v0.20 perf note (graph mode)
 Dropping `--enforce-eager` engages `VLLM_COMPILE`/inductor → **+28% decode, +25% prefill** at low concurrency. NOT cudagraph: at TP>1, XPU disables cudagraph capture (`xpu.py:200`, can't capture cross-card comms) — the win is compiled fused kernels vs eager dispatch. Startup ~505s (compile, cached) vs ~155s eager.
+
+---
+
+## vLLM v0.21.0 port — DONE 2026-05-24 (see `PORT-0.21.md` + `FEATURE-MATRIX.md`)
+
+Stock v0.21.0, **zero source patches**, same runtime stack and the **same two
+runtime fixes as v0.20** (carried over unchanged): `TRITON_INTEL_DEVICE_ARCH=bmg-g21`
++ `--gpu-memory-utilization 0.85` + `--enforce-eager`, no `--block-size` (auto-aligned).
+Install: clone v0.21.0, `cp -a` the v0.20 venv, `uv pip install -e . --no-deps
+--no-build-isolation`. Feature suite **10/10**; perf == v0.20 eager (~3.3 t/s decode).
+Launcher: `scripts/start-vllm-b70-qwen36-27b-tp4-v0.21.sh`.
+
+## ⚠️ CORRECTNESS findings (2026-05-24, via `scripts/feature_test.py`)
+
+Throughput benchmarks do NOT prove correctness — a garbage-emitting serve still
+reports t/s. The functional suite exposed:
+
+1. **Compiled / torch.compile path corrupts output (ALL versions).** Dropping
+   `--enforce-eager` is ~+28% but degrades to garbage (`!!!!`, silent — no log
+   error) under sustained load. → **EAGER is the required default.**
+2. **v0.19 is NOT correctness-reliable** for the hybrid 27B: even eager, it
+   produces correct output for ~1 request then garbage (hybrid mamba/GDN state
+   corruption). Block-size 784 vs 832 made no difference. v0.20+ upstreamed more
+   robust hybrid KV/mamba handling → v0.20/v0.21 eager are stable (10/10).
+3. **GPUs are fine** — a direct torch XPU matmul on all 4 cards is correct
+   (~9e-5 err); the corruption is vLLM-version/state-level, not hardware.
+4. **NEVER run two XPU processes concurrently** (a live serve + any `torch.xpu`
+   script or `pip install -e .` that touches XPU). Concurrent kernel compilation
+   races the shared `~/.triton` / NEO cache and corrupts both the cache (persists
+   on disk across restarts → clear `~/.cache/vllm ~/.triton ~/.cache/neo_compiler_cache`)
+   and the running serve. This caused a long false-alarm garbage episode.
