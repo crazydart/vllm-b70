@@ -39,11 +39,23 @@ vLLM. We instead run current upstream:
 - The original approach here (carry Intel's 466 KB squash onto v0.19) is now
   **obsolete** — kept in git history / `analysis/` for reference only.
 
-## Hardware target
+## Test hardware
 
-- 4× **Intel Arc Pro B70** (Battlemage, 32 GB each, `xe` driver), HP DL580 Gen9
-- Intel **oneAPI 2026.0**, Linux 7.0+, Python 3.12
-- Other Battlemage (B580/B770) likely works — untested
+Everything here was developed and validated on a single box (host `vllm2`):
+
+| Component | Spec |
+|---|---|
+| **GPUs** | **4× Intel Arc Pro B70** — Battlemage / Xe2, **32 GB** each (~30.3 GiB usable), `xe` driver, device IP **20.2.0** |
+| **Server** | HP **ProLiant DL580 Gen9** |
+| **CPU** | 4× Intel **Xeon E7-8890 v4** @ 2.2 GHz — 96 cores / **192 threads**, 4 sockets, **4 NUMA nodes** |
+| **RAM** | **499 GiB** DDR4 |
+| **OS / kernel** | Linux **7.0.0-15-generic** |
+| **Software** | Intel **oneAPI 2026.0**, **Python 3.12.13**, from-source torch 2.12 / triton-xpu 3.6 / vllm-xpu-kernels |
+
+Models were served TP=2–4 across the four B70s (e.g. the bf16 27B needs TP=4 at
+~13 GB/card; INT4 and small models fit on 2). Other Battlemage Arc GPUs
+(B580 / B570 / B770) should work but are **untested** — set
+`TRITON_INTEL_DEVICE_ARCH` to your device's exact IP version (B70 = `20.2.0`).
 
 ## Quick start (v0.21.0)
 
