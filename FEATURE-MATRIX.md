@@ -83,6 +83,10 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
   (potential decode speedup) AND AWQ-INT4 quant on XPU (likely unsupported — useful either way).
 - MoE + MTP + ternary → `YTan2000/Qwen3.6-35B-A3B-MTP-TQ3_4S` — ⚠️ `TQ3_4S` looks like a GGUF
   ternary quant → **llama.cpp-SYCL** target, not vLLM-XPU (no GGUF kernels); verify format first.
+- Gemma-4 (non-hybrid arch, broader coverage): MoE → `unsloth/gemma-4-E4B-it`,
+  `unsloth/gemma-4-26B-A4B-it`; dense baseline → `unsloth/gemma-4-31B`. (Verify vLLM Gemma-4 support.)
+
+All candidate models above are being downloaded to NAS (`/mnt/nas/models/{hf-safetensors,gguf}/`).
 
 ## Performance (TP=4 eager, llama-benchy, identical across v0.20/v0.21)
 
