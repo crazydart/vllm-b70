@@ -534,3 +534,30 @@ When bumping the upstream base:
 3. **Do not** copy patches forward blindly. The file layouts (`vllm/v1/worker/*`, `vllm/model_executor/layers/*`) change between minor releases; the patch shape may need to move.
 4. **Re-verify** every "vLLM 0.21 migration" note in this doc and prune.
 5. Keep this file's structure (E/P/R/N/O sections) so the diff between vLLM versions stays legible.
+
+---
+
+## vLLM v0.20.2 port — DONE 2026-05-24 (full write-up: `PORT-0.20.md`)
+
+Migration checklist above played out almost ideally: started from a **clean
+stock v0.20.2 tree**, reused the v0.19 venv (torch 2.12 / triton-xpu 3.6 /
+vllm-xpu-kernels — unchanged), and **all five v0.19 source patches turned out to
+be obsolete** (upstream absorbed them). Result: Qwen3.6-27B TP=4 serves with
+**zero source patches**. Only two NEW runtime settings were needed:
+
+### V20-1. `TRITON_INTEL_DEVICE_ARCH=bmg-g21` — replaces P2 (and is the prereq for torch.compile)
+- **Symptom:** `Internal Triton ZEBIN codegen error` / `ocloc ... -device '' ... stoul`; engine dies on first decode (eager) or at compile (compiled).
+- **Cause:** triton-xpu 3.6 `parse_device_arch()` doesn't know our B70 stepping (IP 20.2.0; its table only has bmg=20.1.0) → empty `-device` to `ocloc`. Only the `torch._inductor`/`@torch.compile` native-codegen path hits it (triton.jit FLA/GDN uses SPIR-V runtime JIT, not ocloc).
+- **Fix:** force the arch via `knobs.intel.device_arch` env. Verified values: `bmg-g21` (chosen), `bmg`, `20.2.0`. Better than v0.19's P2 source patch: env-only, and fixes *all* inductor paths (so torch.compile works → +28% decode).
+
+### V20-2. `--gpu-memory-utilization 0.80` (compiled) / 0.85 (eager) — was 0.90 in v0.19
+- **Symptom:** `UR_RESULT_ERROR_OUT_OF_DEVICE_MEMORY` (err 39) on one worker, first decode, then engine wedges ("No shared memory broadcast block in 60s").
+- **Cause:** V20-1 enabled the inductor path P2 had disabled; its workspace needs more headroom. Util value tracks inductor load: P2-off=0.90, eager=0.85, compiled=0.80.
+
+### What became stock in v0.20 (drop these v0.19 patches)
+- **S5** (hybrid-KV `config.py` + manual `--block-size 784`) → `XPUPlatform.update_block_size_for_backend()` auto-aligns (logs *"Setting attention block size to 832 ..."*). `support_hybrid_kv_cache()→True`. **No `--block-size` flag.**
+- **P3/P5** (`xpu_worker.py` device index) → upstream uses `self.local_rank` consistently.
+- **P1** (`block_table.py`) / **P2** (`vocab_parallel_embedding.py`) → stock works (triton present; P2 replaced by V20-1).
+
+### v0.20 perf note (graph mode)
+Dropping `--enforce-eager` engages `VLLM_COMPILE`/inductor → **+28% decode, +25% prefill** at low concurrency. NOT cudagraph: at TP>1, XPU disables cudagraph capture (`xpu.py:200`, can't capture cross-card comms) — the win is compiled fused kernels vs eager dispatch. Startup ~505s (compile, cached) vs ~155s eager.
