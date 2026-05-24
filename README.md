@@ -46,9 +46,14 @@ vLLM. We instead run current upstream:
 
 ## Quick start (v0.21.0)
 
-The runtime stack (torch/triton/kernels) is the involved part — build per
-[`FIXES.md`](FIXES.md) §B1 once, then reuse it across vLLM versions. With the
-stack in a venv:
+The runtime stack (torch/triton/kernels) is the involved part. **You can skip the
+~1.5 h of compiling** — prebuilt torch + vllm-xpu-kernels are published as a
+release: **[`b70-runtime-2026.0`](https://github.com/crazydart/vllm-b70/releases/tag/b70-runtime-2026.0)**.
+They require matching **oneAPI 2026.0 + Python 3.12** (as any prebuilt XPU wheel
+does) and are built for **Battlemage (Xe2)** — should work on other Battlemage
+Arc GPUs, tested only on B70. Or build the stack yourself per [`FIXES.md`](FIXES.md) §B1.
+
+With the runtime stack in a venv:
 
 ```bash
 # stock upstream, no patches
