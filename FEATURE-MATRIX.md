@@ -68,36 +68,22 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
   400 (correct). Raise the flag if longer context is needed (costs KV memory).
 - **Reasoning model:** Qwen3.6-27B always emits a `<think>` block; budget enough
   `max_tokens` (a bare "PONG" needs ~100+ tokens because it thinks first).
-- **Quantization:** none — bf16 only on XPU (no GGUF/AWQ/GPTQ kernels).
 - **GPU concurrency:** a single serve owns all 4 cards; do not run a second XPU
   process alongside it (corrupts the shared compile cache + running serve).
 
-## Untested capabilities (NOT validated — do not assume they work)
+## Capability coverage (2026-05-24 model-test campaign)
 
-- **MTP (multi-token prediction / self-speculative decode): NOT tested.** The
-  Qwen3.6-27B checkpoint **ships an MTP head** (`config.json`:
-  `mtp_num_hidden_layers: 1`), but every serve here ran **standard decode** — no
-  `--speculative-config` / MTP was enabled, so the MTP head sat unused. This is a
-  real missed opportunity: MTP self-speculation could lift the slow ~3.3 t/s
-  decode. But XPU MTP support is unverified, and MTP is known-buggy on the SYCL
-  side (see `~/docs/intel-stack/llama-cpp-sycl.md` MTP-SYCL note) — needs explicit
-  testing before relying on it.
-- **MoE (mixture of experts): NOT tested.** The 27B we validated is **dense**
-  (arch `Qwen3_5ForConditionalGeneration`, no expert/router config). vLLM has a
-  `Qwen3_5MoeForConditionalGeneration` path and the model zoo has a
-  **Qwen3.5-122B-A10B** (MoE), but no MoE model has been run on vLLM-B70 — the
-  XPU fused-MoE kernel path is unexercised here.
-- **Also untested:** speculative decoding (draft model), LoRA adapters, prefix
-  caching (`--enable-prefix-caching` was off), structured/guided output.
+| Capability | Status on B70 / vLLM 0.21 | Evidence |
+|---|---|---|
+| **MoE** (fused-MoE XPU path) | ✅ **WORKS** | `Qwen3.6-35B-A3B` (3B act/35B), TP=4 — feature 10/10, **572 t/s prefill** (3× the dense 27B from sparsity), ~3.7 t/s decode |
+| **Quantization — INT4** (`compressed-tensors`) | ✅ **WORKS** | `Qwen3.6-27B-AWQ-…` INT4, TP=2 — feature 10/10; runs the 27B on **just 2 cards** (memory win); ~285 prefill, ~3.7 decode. (Earlier "bf16 only" was wrong — compressed-tensors INT4 runs via triton kernels.) |
+| **MTP / speculative decode** (hybrid GDN models) | ❌ **NOT SUPPORTED on XPU** | The MTP draft wires up fine (engages, shares weights), but **crashes at runtime**: `_xpu_ops.py:118 assert spec_sequence_masks is None` with a literal `# TODO: xpu does not support speculative decoding yet`. It's a **vLLM XPU GDN-kernel gap, NOT a transformers/config issue** — transformers v5 will not fix it. This is the "MTP broken on 0.21 for qwen" people see (qwen3_5 is hybrid-GDN). Needs spec-decode added to the XPU SYCL GDN kernel. |
+| **Gemma-4** (non-hybrid arch) | 🚫 **BLOCKED on transformers v5** | `model_type=gemma4` unrecognized by transformers 4.57.6 (config parse fails before vLLM's `gemma4_mm.py`). vLLM has the model class; needs transformers v5. Affects all 3 gemma-4 models. → task #47. |
+| GGUF (e.g. TQ3 ternary) | ❌ not on vLLM-XPU | No GGUF kernels on XPU — `YTan2000/…-TQ3_4S` is a **llama.cpp-SYCL** target. |
+| LoRA, prefix caching, guided output | ⬜ still untested | — |
 
-**Planned tests to fill these gaps:**
-- MoE → `unsloth/Qwen3.6-35B-A3B` (3B active / 35B total) — exercises the XPU fused-MoE path.
-- MTP + AWQ → `hampsonw/Qwen3.6-27B-AWQ-BF16-INT4-mtp-bf16` — tests `--speculative-config` MTP
-  (potential decode speedup) AND AWQ-INT4 quant on XPU (likely unsupported — useful either way).
-- MoE + MTP + ternary → `YTan2000/Qwen3.6-35B-A3B-MTP-TQ3_4S` — ⚠️ `TQ3_4S` looks like a GGUF
-  ternary quant → **llama.cpp-SYCL** target, not vLLM-XPU (no GGUF kernels); verify format first.
-- Gemma-4 (non-hybrid arch, broader coverage): MoE → `unsloth/gemma-4-E4B-it`,
-  `unsloth/gemma-4-26B-A4B-it`; dense baseline → `unsloth/gemma-4-31B`. (Verify vLLM Gemma-4 support.)
+**Net:** MoE ✅ and INT4 quant ✅ both work (good news). MTP is blocked by an XPU
+kernel limitation (not transformers). Gemma-4 needs transformers v5 (task #47).
 
 All candidate models above are being downloaded to NAS (`/mnt/nas/models/{hf-safetensors,gguf}/`).
 
