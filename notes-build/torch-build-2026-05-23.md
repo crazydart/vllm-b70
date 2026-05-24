@@ -49,7 +49,71 @@ Build aborted at target 2528/2601 (in `caffe2/torch/CMakeFiles/torch_xpu.dir`) c
 
 Root cause: in pytorch v2.12.0 these headers are **provided by the `intel/torch-xpu-ops` repo**, which is referenced via a SHA-pin file (`third_party/xpu.txt` → `62b793fed8e0a708551d451712af635b6255b322`) rather than a real submodule. The build system does NOT auto-clone it during the normal recursive submodule update; it relies on a setuptools-time hook (`tools/build_pytorch_libs.py` calls `_clone_xpu_ops()`) which evidently did NOT run in our editable-install path. The build kept going with stubbed forward declarations until it tried to compile the actual `.cpp` files that need the real headers.
 
-## Fix for next attempt
+## Resolution (2026-05-24, after reboot) — TWO cmake bugs, not a clone problem
+
+The torch-xpu-ops repo was actually present at the correct pinned SHA all along
+(cmake auto-clones it via `caffe2/CMakeLists.txt:1166 if(NOT EXISTS .git)`).
+The real problem was two include-path wiring bugs in pytorch v2.12.0's cmake:
+
+1. **`caffe2/CMakeLists.txt:1199`** — `list(APPEND ${Caffe2_XPU_INCLUDE} ...)`
+   dereferences the variable (appends to a phantom list named by its *value*),
+   and points at `src/ATen/` when the `<ATen/...>` include style needs the
+   parent `src/`. `Caffe2_XPU_INCLUDE` is what `:1756 target_include_directories(
+   torch_xpu PRIVATE ...)` consumes, so torch_xpu never got torch-xpu-ops/src.
+   Fix: `list(APPEND Caffe2_XPU_INCLUDE ${TORCH_XPU_OPS_DIR}/src)` (no deref,
+   parent dir). → unblocked ScaledBlas.cpp / Blas.cpp / Attention.cpp; both
+   libtorch_xpu.so and libtorch.so then linked.
+
+2. **`torch/CMakeLists.txt:79`** — `torch_python`'s `Module.cpp` includes
+   `<ATen/native/transformers/xpu/sdp_utils.h>` under `#ifdef USE_XPU`, which
+   pulls `flash_attn/utils.h` from torch-xpu-ops, but `TORCH_PYTHON_INCLUDE_
+   DIRECTORIES` lacked torch-xpu-ops/src. Fix: append
+   `${TORCH_ROOT}/third_party/torch-xpu-ops/src` under `if(USE_XPU)`.
+
+Both are upstream pytorch bugs that presumably don't bite Intel's CI because
+their build path stages these headers differently; on a host `setup.py develop`
+build against oneAPI 2026.0 they surface. Patches live in the build tree (under
+build/, gitignored) — see scripts copies and this note.
+
+## Attempt 2 (2026-05-24) — built, but torch_xpu_ops silently skipped → 3rd root cause
+
+After the two cmake include-path fixes, the build completed and produced an
+editable install, BUT `import torch` failed at load:
+`libtorch_xpu.so: undefined symbol: at::native::addmm_complex_out_xpu`.
+
+Diagnosis chain:
+- The symbol is implemented in torch-xpu-ops/src/ATen/native/xpu/Blas.cpp, but
+  `build/caffe2/aten_xpu/` had ZERO compiled objects and no `torch_xpu_ops`
+  archive. The target appeared nowhere in build.ninja.
+- A clean `cmake .` reconfigure printed the smoking gun:
+  `Not compiling with XPU. Currently only support GCC compiler on Linux ...`
+  then `CMake Warning at caffe2/CMakeLists.txt:1210: Failed to include ATen XPU
+  implementation target`.
+- Source: `torch-xpu-ops/cmake/BuildFlags.cmake:34,192` — the XPU implementation
+  only builds when `CMAKE_CXX_COMPILER_ID` is `GNU` or `MSVC`. We were building
+  with `CXX=icpx` (IntelLLVM), so torch-xpu-ops skipped its whole library and
+  libtorch_xpu.so linked with the dispatcher call to addmm_complex_out_xpu
+  unresolved (shared libs tolerate undefined symbols until load).
+
+**THE KEY INSIGHT:** PyTorch XPU builds use **GCC (g++) as the host compiler**;
+icpx is invoked *only* for SYCL device sources, via torch-xpu-ops'
+FindSYCLToolkit (which auto-detects SYCL_COMPILER=icx). Setting CC/CXX to
+icx/icpx is wrong for the host build. Fixed build-env.sh to CC=gcc CXX=g++
+(gcc 15.2 here, also >=13 so SYCL-TLA flash-attn builds). Host-compiler change
+needs a fresh CMakeCache → full rebuild from scratch (attempt 3).
+
+## Attempt 3 (2026-05-24, CC=gcc CXX=g++) — configure confirms the fix
+
+Clean rebuild from scratch with gcc/g++ host compiler. Configure (73.2s) result:
+- NO "Failed to include ATen XPU implementation target" warning (attempt 2 had it)
+- `torch_xpu_ops` now appears 1838× in build.ninja (attempt 2: 0)
+- So torch-xpu-ops' library + SYCL device kernels (AOT for bmg) will actually
+  compile this time. This makes attempt 3 a LARGER build than attempt 1/2
+  (which skipped torch_xpu_ops entirely) — expect 75-100 min wall.
+
+Build started ~06:16. (Result to be recorded.)
+
+## Fix for next attempt (now applied — see attempt 3)
 
 Before re-running build.sh, **manually clone torch-xpu-ops into `third_party/torch-xpu-ops/`** at the pinned SHA and create a symlink the cmake finds:
 

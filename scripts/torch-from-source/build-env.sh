@@ -9,8 +9,15 @@ source /opt/intel/oneapi/setvars.sh --force > /dev/null 2>&1
 set -eu
 
 # ─── Compilers ──────────────────────────────────────────────────────────────
-export CC=icx
-export CXX=icpx
+# CRITICAL: host compiler MUST be GCC. torch-xpu-ops/cmake/BuildFlags.cmake:34
+# only builds the XPU implementation when CMAKE_CXX_COMPILER_ID is GNU or MSVC
+# ("Not compiling with XPU. Currently only support GCC..."). icpx (IntelLLVM)
+# silently skips torch_xpu_ops -> undefined symbol addmm_complex_out_xpu at
+# import. SYCL *device* code is still compiled by icpx via torch-xpu-ops'
+# FindSYCLToolkit (SYCL_COMPILER auto-detected). gcc 15.2 here is >=13 so
+# SYCL-TLA (flash-attn) builds too.
+export CC=gcc
+export CXX=g++
 
 # ─── Backend toggles ────────────────────────────────────────────────────────
 export USE_XPU=1

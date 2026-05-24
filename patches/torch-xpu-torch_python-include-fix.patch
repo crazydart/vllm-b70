@@ -1,0 +1,20 @@
+diff --git a/torch/CMakeLists.txt b/torch/CMakeLists.txt
+index 471fe0c..1a87f1a 100644
+--- a/torch/CMakeLists.txt
++++ b/torch/CMakeLists.txt
+@@ -78,6 +78,15 @@ set(TORCH_PYTHON_INCLUDE_DIRECTORIES
+ 
+ list(APPEND TORCH_PYTHON_INCLUDE_DIRECTORIES ${LIBSHM_SRCDIR})
+ 
++# vllm-b70 fix: torch_python's Module.cpp includes <ATen/native/transformers/
++# xpu/sdp_utils.h> (under #ifdef USE_XPU), which pulls flash_attn/utils.h from
++# torch-xpu-ops. That repo's src/ is not otherwise on torch_python's include
++# path, so add it here when building with XPU.
++if(USE_XPU)
++  list(APPEND TORCH_PYTHON_INCLUDE_DIRECTORIES
++       ${TORCH_ROOT}/third_party/torch-xpu-ops/src)
++endif()
++
+ set(TORCH_PYTHON_LINK_LIBRARIES
+     Python::Module
+     pybind::pybind11

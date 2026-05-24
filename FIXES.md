@@ -355,7 +355,12 @@ With both controls in place, the bare `!!! Segfault !!!` became a clean Python t
 
 ---
 
-### N5. Do NOT re-install triton-xpu on the current stack
+### N5. triton-xpu wall — RESOLVED 2026-05-24 by from-source torch (see B1)
+
+> **UPDATE 2026-05-24:** This wall is **broken**. The fix was building torch
+> from source against system oneAPI 2026.0 (libsycl.so.9) — see [B1](#b1-build-torchxpu-2120-from-source-against-oneapi-20260) below. With that torch,
+> `triton-xpu==3.6.0` JITs and runs kernels correctly (verified). The original
+> dead-end analysis is kept below for the record.
 
 **Why we tried.** Hybrid-attention models (Qwen3.5-27B / Qwen3.6-27B, arch `Qwen3_5ForConditionalGeneration`) use `linear_attention` layers that route through `vllm/model_executor/layers/fla/ops/` — every op there is `@triton.jit`. With no triton installed the model loads weights fine (Worker_TP0 logged "Model loading took 25.68 GiB"), but `profile_run()` immediately fails: `RuntimeError: module 'triton' has no attribute 'cdiv'` (the `TritonPlaceholder` shim doesn't stub `cdiv`).
 
@@ -401,6 +406,32 @@ The 2026.0 system `libur_loader` *does* export that symbol. The problem is load 
 After P5, TP=2 boots cleanly, profile_run completes, KV cache initialises, the API server reports "Application startup complete", and chat completions return deterministic output at temperature=0.
 
 **Lesson for next migration.** When a bare SIGSEGV looks like a kernel bug, do not assume the kernel is buggy. First: (a) clear all persistent program caches, (b) install `faulthandler` (`PYTHONFAULTHANDLER=1` is enough), (c) re-run. The "kernel" trace may be a downstream cascade from a plain Python error in a few frames up.
+
+---
+
+## Builds
+
+### B1. Build torch+xpu 2.12.0 from source against oneAPI 2026.0
+
+**Why.** The published `torch==2.10/2.11/2.12+xpu` wheels bundle Intel runtime from oneAPI **2025.3** (`libsycl.so.8` + an older `libur_loader`). triton-xpu 3.6.0 is built against **2026.0** (`libsycl.so.9`, which needs `urDeviceWaitExp@LIBUR_LOADER_0.12`). They can't coexist (N5). The fix: build torch against the *system* 2026.0 so its only SYCL is `libsycl.so.9`. Verified: triton-xpu 3.6.0 then JITs and runs kernels against this torch.
+
+**Recipe.** Scripts in `scripts/torch-from-source/`, timing+notes in `notes-build/torch-build-2026-05-23.md`. Source: `pytorch/pytorch v2.12.0` + pinned `torch-xpu-ops 62b793fed`. Build version tag `2.12.0+xpu.b70.2026.0`. ~32 min wall on this box (96c Xeon, g++).
+
+**Three bugs fixed to make it build** (patches in `patches/torch-xpu-*.patch`):
+
+1. **Host compiler MUST be GCC, not icpx** (the big one). `torch-xpu-ops/cmake/BuildFlags.cmake:34` only builds the XPU implementation when `CMAKE_CXX_COMPILER_ID` is `GNU` or `MSVC`. Building with `CXX=icpx` (IntelLLVM) printed `Not compiling with XPU. Currently only support GCC compiler on Linux` and `caffe2/CMakeLists.txt:1210 Failed to include ATen XPU implementation target`, silently dropping the whole `torch_xpu_ops` library → `import torch` failed with `undefined symbol: at::native::addmm_complex_out_xpu`. **icpx is only for SYCL device code** (auto-detected via FindSYCLToolkit); the host C++ build uses g++. Set `CC=gcc CXX=g++`.
+
+2. **`caffe2/CMakeLists.txt:1199` include-path bug.** `list(APPEND ${Caffe2_XPU_INCLUDE} ...)` dereferences the variable (appends to a phantom list named by its value) and points at `src/ATen/` when the `<ATen/...>` include style needs the parent `src/`. `Caffe2_XPU_INCLUDE` is what `:1756 target_include_directories(torch_xpu PRIVATE ...)` consumes, so torch_xpu TUs (`mkldnn/xpu/{ScaledBlas,Blas,Attention}.cpp`) couldn't find `ATen/native/xpu/Blas.h` / `flash_attn/utils.h`. Fix: `list(APPEND Caffe2_XPU_INCLUDE ${TORCH_XPU_OPS_DIR}/src)`.
+
+3. **`torch/CMakeLists.txt` torch_python missing the include.** `torch_python`'s `Module.cpp` includes `<ATen/native/transformers/xpu/sdp_utils.h>` (under `#ifdef USE_XPU`) → `flash_attn/utils.h`, but `TORCH_PYTHON_INCLUDE_DIRECTORIES` lacked torch-xpu-ops/src. Fix: append `${TORCH_ROOT}/third_party/torch-xpu-ops/src` under `if(USE_XPU)`.
+
+**Smoke-verified** (`scripts/torch-from-source/smoke.sh` + `smoke-triton.sh`):
+- `torch.xpu.is_available()` True, 4 devices, `get_device_properties` OK on all 4 B70s (pytorch#179891 not reproduced on v2.12.0).
+- `ldd libtorch_xpu.so` → system `libsycl.so.9` + `libur_loader.so.0` + MKL 2026.0, **zero `libsycl.so.8`**.
+- bf16 4k×4k matmul correct.
+- **triton-xpu 3.6.0 JIT add_kernel correct: True** ← the wall (N5) is broken.
+
+**vLLM 0.22 migration.** All three bugs are in pytorch v2.12.0's cmake; recheck whether upstream fixed #1's compiler gate (track torch-xpu-ops) and the two include-path bugs in the target torch version. If a torch+xpu wheel built against oneAPI 2026.0+ ever ships, this whole from-source build can be dropped.
 
 ---
 
