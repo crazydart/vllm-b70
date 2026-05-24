@@ -17,16 +17,27 @@ Raw: `results/feature-test-*.md`, `results/qwen36-27b-tp4-*-bench-*.md`.
 
 | version | config | correctness | notes |
 |---|---|---|---|
-| **v0.21.0** | **eager** | ✅ **10/10, stable** | **RECOMMENDED.** Stock source, 2 runtime fixes. |
-| v0.20.2 | eager | ✅ 10/10, stable | Equivalent to v0.21. Stock source. |
-| v0.20.2 | compiled (torch.compile) | ❌ corrupts under load | +28% faster, but degrades to garbage (`!!!!`) after sustained use. Unsafe. |
-| v0.19.0 | eager (patched) | ❌ corrupts after ~1 req | Hybrid mamba/GDN state corruption; clean for ~1 request then garbage. Not reliable. Block-size (784 vs 832) made no difference. |
+| **v0.21.0** | **compiled + `TRITON_INTEL_DEVICE_ARCH=20.2.0`** | ✅ **10/10, stable** | **RECOMMENDED — fastest.** ~5.1 t/s decode (+~55% vs eager). Stock source. |
+| v0.21.0 | eager | ✅ 10/10, stable | Correct but slower (~3.3 t/s). Fine fallback / fast startup. |
+| v0.20.2 | eager | ✅ 10/10, stable | Equivalent to v0.21 eager. Stock source. |
+| v0.20.2 | compiled + `bmg-g21` | ❌ corrupts under load | The corruption — **wrong stepping** (see below). 20.2.0 fix expected to apply (validated on v0.21). |
+| v0.19.0 | eager (patched) | ❌ corrupts after ~1 req | Hybrid mamba/GDN state corruption; clean ~1 request then garbage. Not reliable. Block-size (784 vs 832) made no difference. |
 
-**Bottom line:** use **v0.21 (or v0.20) in EAGER mode**. v0.19 is not
-correctness-reliable for this hybrid model; the compiled/inductor path corrupts
-on all versions tested.
+**Bottom line:** use **v0.21 compiled with `TRITON_INTEL_DEVICE_ARCH=20.2.0`**
+(correct + fastest), or eager as a fallback. v0.19 is not correctness-reliable.
 
-## Feature detail (v0.21.0 eager — the recommended config)
+### ✅ The compiled-path corruption is SOLVED (2026-05-24)
+
+It was **wrong-stepping native codegen.** `bmg-g21` (the obvious arch override)
+is IP **20.1.0**, but the B70 silicon is IP **20.2.0**. Simple kernels tolerate
+the mismatch, but the large `torch.compile`/inductor fused-kernel surface
+silently mis-computes → garbage (`!!!!`) after ~35 requests of load. Reproduced
+reliably (bmg-g21 corrupts @ ~req 36/50) and fixed by compiling for the exact IP:
+**`TRITON_INTEL_DEVICE_ARCH=20.2.0`** → 55-request stress clean + feature suite
+10/10 + ~5.1 t/s decode. Results: `results/feature-test-v0.21-compiled-ip2020-*.md`,
+`results/qwen36-27b-tp4-v0.21-compiled-ip2020-bench-*.md`.
+
+## Feature detail (v0.21.0 compiled+20.2.0 — the recommended config; eager identical 10/10)
 
 | feature | result | note |
 |---|---|---|
@@ -45,9 +56,11 @@ v0.20.2 eager produced the identical 10/10 (`results/feature-test-v0.20-eager-*.
 
 ## What is NOT working / caveats
 
-- **Compiled / torch.compile path (all versions): corrupts output under load.**
-  Inductor-compiled kernels (the +28% path) produce garbage (`!!!!`) after a
-  fresh-correct period — silent (no error in the log). Eager is the safe default.
+- **Compiled / torch.compile path: was corrupting — NOW FIXED** via
+  `TRITON_INTEL_DEVICE_ARCH=20.2.0` (exact B70 IP, not `bmg-g21`=20.1.0). With the
+  wrong arch it produces garbage (`!!!!`) under load; with the exact IP it's
+  correct + ~55% faster. (v0.19's corruption is a *separate*, unfixed issue — its
+  hybrid-state handling, independent of arch.)
 - **v0.19 hybrid-state corruption:** even in eager, v0.19 degrades to garbage
   after ~1 request. v0.20+ upstreamed more robust hybrid KV/mamba handling. Do
   not use v0.19 for this model.

@@ -11,9 +11,10 @@ runtime stack on oneAPI 2026.0; vLLM itself runs stock.
 > **Working as of 2026-05-24: Qwen3.6-27B serves on stock vLLM v0.21.0.**
 > Hybrid GDN/mamba + full-attention 27B model, **TP=4** across all four B70s,
 > `0.0.0.0:8080`, feature-validated (streaming, EOS, multi-turn, batched
-> correctness, long-context recall — 10/10). **Use EAGER** (`--enforce-eager`):
-> the torch.compile path is ~28% faster but corrupts output under load on this
-> stack (see [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md)).
+> correctness, long-context recall — 10/10). Recommended: **torch.compile ON with
+> `TRITON_INTEL_DEVICE_ARCH=20.2.0`** (the B70's exact IP) — correct + ~5.1 t/s
+> decode (~55% faster than eager). See [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) /
+> [`BENCHMARKS.md`](BENCHMARKS.md).
 
 ## What this gives you
 
@@ -79,9 +80,9 @@ Full port recipe + the two required fixes: [`PORT-0.21.md`](PORT-0.21.md).
 | v0.21.0 port (stock, zero patches) | ✅ **Done & recommended** — [`PORT-0.21.md`](PORT-0.21.md) |
 | TP=4, Qwen3.6-27B hybrid serve | ✅ Working (eager), feature-validated |
 | Feature/correctness matrix | ✅ [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) |
-| torch.compile path (+28%) | ❌ Corrupts output under load — eager only (under investigation) |
+| torch.compile path | ✅ **Fixed** — was corrupting with wrong arch (`bmg-g21`); `TRITON_INTEL_DEVICE_ARCH=20.2.0` makes it correct + ~55% faster |
 
-Perf (TP=4 eager): ~180 t/s prefill (pp512), ~3.3 t/s decode (tg64 c1).
+Perf (TP=4, compiled+20.2.0): ~188 t/s prefill (pp512), **~5.1 t/s decode** (tg64 c1) — vs ~3.3 eager.
 
 ## Key docs
 
@@ -93,9 +94,9 @@ Perf (TP=4 eager): ~180 t/s prefill (pp512), ~3.3 t/s decode (tg64 c1).
 
 ## Gotchas (project-specific)
 
-- **EAGER only** — compiled/torch.compile corrupts output on this stack.
 - **`source setvars.sh`** before serving — from-source torch links system 2026.0 MKL.
-- **`TRITON_INTEL_DEVICE_ARCH=bmg-g21`** required (triton-xpu can't resolve the B70's IP 20.2.0 → `ocloc` crash on the inductor path).
+- **`TRITON_INTEL_DEVICE_ARCH=20.2.0`** required (the B70's exact IP). triton-xpu can't auto-resolve it → `ocloc` crash; and the obvious `bmg-g21` (IP 20.1.0) is the *wrong stepping* → silent garbage under torch.compile. Use the exact IP.
+- compiled/torch.compile is the recommended (fast+correct) config **with `20.2.0`**; eager is the fallback.
 - **`ONEAPI_DEVICE_SELECTOR=*:gpu`** (not `level_zero:N` — breaks triton's FLA probe).
 - **Never run two XPU processes at once** (serve + any `torch.xpu` script/install) — races the shared triton/NEO cache and corrupts both.
 

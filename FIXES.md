@@ -578,9 +578,16 @@ Launcher: `scripts/start-vllm-b70-qwen36-27b-tp4-v0.21.sh`.
 Throughput benchmarks do NOT prove correctness — a garbage-emitting serve still
 reports t/s. The functional suite exposed:
 
-1. **Compiled / torch.compile path corrupts output (ALL versions).** Dropping
-   `--enforce-eager` is ~+28% but degrades to garbage (`!!!!`, silent — no log
-   error) under sustained load. → **EAGER is the required default.**
+1. **Compiled / torch.compile path corruption — ROOT-CAUSED & FIXED (2026-05-24).**
+   Dropping `--enforce-eager` degraded to garbage (`!!!!`, silent) after ~35 reqs.
+   Cause: **wrong-stepping native codegen** — `TRITON_INTEL_DEVICE_ARCH=bmg-g21`
+   is IP **20.1.0**, but the B70 is IP **20.2.0**. Simple kernels tolerate it;
+   the large inductor fused-kernel surface mis-computes. **Fix: compile for the
+   exact IP — `TRITON_INTEL_DEVICE_ARCH=20.2.0`.** Then compiled is correct
+   (feature suite 10/10, 55-req stress clean) AND ~55% faster decode (~5.1 vs
+   ~3.3 t/s). → **Recommended config is now compiled + 20.2.0** (not eager).
+   Repro: bmg-g21 corrupts @ ~req 36/50; 20.2.0 clean through 55. (Eager tolerated
+   bmg-g21 due to its tiny inductor surface, but 20.2.0 is the correct value.)
 2. **v0.19 is NOT correctness-reliable** for the hybrid 27B: even eager, it
    produces correct output for ~1 request then garbage (hybrid mamba/GDN state
    corruption). Block-size 784 vs 832 made no difference. v0.20+ upstreamed more

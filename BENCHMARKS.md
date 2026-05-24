@@ -18,19 +18,21 @@ Standard run: `--pp 128 512 --tg 64 --concurrency 1 4 --runs 3`. Columns below:
 |---|---|---|---|---|---|---|---|---|---|
 | Qwen3.5-27B (hybrid) | bf16 | v0.19.0 (patched) | eager | **2** (TP=2) | 201 | 3.3 | 9.5 | ❌ unreliable¹ | `results/qwen35-27b-tp2-bench-20260524-095519.md` |
 | Qwen3.6-27B (hybrid) | bf16 | v0.20.2 (stock) | eager | **4** (TP=4) | 181 | 3.1–3.4 | 8.8–9.9 | ✅ | `results/qwen36-27b-tp4-v0.20-bench-20260524-170442.md` |
-| Qwen3.6-27B (hybrid) | bf16 | v0.20.2 (stock) | **compiled** | **4** (TP=4) | 192 | **4.3** | **11.3–13.1** | ❌ corrupts² | `results/qwen36-27b-tp4-v0.20-graphmode-bench-20260524-172335.md` |
-| Qwen3.6-27B (hybrid) | bf16 | **v0.21.0 (stock)** | **eager** ⭐ | **4** (TP=4) | 180 | 3.0–3.3 | 8.7–10.8 | ✅ | `results/qwen36-27b-tp4-v0.21-bench-20260524-192711.md` |
+| Qwen3.6-27B (hybrid) | bf16 | v0.20.2 (stock) | compiled + `bmg-g21` | **4** (TP=4) | 192 | 4.3 | 11.3–13.1 | ❌ corrupts² | `results/qwen36-27b-tp4-v0.20-graphmode-bench-20260524-172335.md` |
+| Qwen3.6-27B (hybrid) | bf16 | v0.21.0 (stock) | eager | **4** (TP=4) | 180 | 3.0–3.3 | 8.7–10.8 | ✅ | `results/qwen36-27b-tp4-v0.21-bench-20260524-192711.md` |
+| Qwen3.6-27B (hybrid) | bf16 | **v0.21.0 (stock)** | **compiled + `20.2.0`** ⭐ | **4** (TP=4) | 188 | **5.1** | **11.9–15.6** | ✅ | `results/qwen36-27b-tp4-v0.21-compiled-ip2020-bench-20260524-213437.md` |
 
 ⭐ = recommended config. ¹ v0.19 hybrid-state handling corrupts output under load
-(throughput measured before that was found; see FEATURE-MATRIX). ² compiled/
-torch.compile is ~+28% on decode but degrades to garbage under sustained load —
-not usable until root-caused (under investigation).
+(throughput measured before that was found; see FEATURE-MATRIX). ² compiled with
+the WRONG device arch (`bmg-g21`=IP 20.1.0) corrupts to garbage under load —
+**fixed** by compiling for the exact B70 IP `20.2.0` (the ⭐ row: correct AND
+~55% faster decode). See FEATURE-MATRIX "compiled-path corruption SOLVED".
 
 **Takeaways:**
-- **Recommended: Qwen3.6-27B, vLLM v0.21.0, eager, TP=4** — ~180 t/s prefill, ~3.3 t/s single-stream decode, correct.
+- **Recommended: Qwen3.6-27B, vLLM v0.21.0, compiled + `TRITON_INTEL_DEVICE_ARCH=20.2.0`, TP=4** — ~188 t/s prefill, **~5.1 t/s decode** (+~55% vs eager), correct (feature suite 10/10).
+- Eager (~3.3 t/s) is the correct fallback / fast-startup option.
 - The 27B (bf16, ~52 GB) fits on **2 cards** (TP=2) or 4 (TP=4); TP=4 is ~13 GB/card.
-- Compiled would give ~4.3 t/s decode (+28%) but is currently unsafe.
-- Decode is modest (eager dispatch + JIT kernels, no cudagraph at TP>1); **MTP/self-speculation is the most promising lever** to raise it (untested — see pending).
+- Decode could climb further with **MTP/self-speculation** (untested — see pending).
 
 ## Pending (models downloaded to NAS, not yet benchmarked)
 
