@@ -1,0 +1,20 @@
+diff --git a/vllm/model_executor/models/config.py b/vllm/model_executor/models/config.py
+index c13ea5393..3dfab6b03 100644
+--- a/vllm/model_executor/models/config.py
++++ b/vllm/model_executor/models/config.py
+@@ -686,6 +686,15 @@ class Qwen3_5ForConditionalGenerationConfig(VerifyAndUpdateConfig):
+                 cache_config.mamba_ssm_cache_dtype,
+             )
+ 
++        # WORKAROUND (vllm-b70): Qwen3.5/3.6 are hybrid attention+GDN(mamba)
++        # models, so attention/mamba KV-cache page sizes must be unified (attn
++        # block_size bumped to align; mamba page padded). Upstream's Qwen3_5
++        # config only set mamba_ssm_cache_dtype and never ran this, causing
++        # `NotImplementedError: The page size of the layer is not divisible by
++        # the maximum page size` in get_kv_cache_groups. Run the standard
++        # hybrid alignment now that mamba_ssm_cache_dtype is set.
++        HybridAttentionMambaModelConfig.verify_and_update_config(vllm_config)
++
+ 
+ class SnowflakeGteNewModelConfig(VerifyAndUpdateConfig):
+     @staticmethod

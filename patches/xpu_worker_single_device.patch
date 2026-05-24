@@ -1,5 +1,5 @@
 diff --git a/vllm/v1/worker/xpu_worker.py b/vllm/v1/worker/xpu_worker.py
-index 005f02fb6..9803027ca 100644
+index 005f02fb6..b3632cb18 100644
 --- a/vllm/v1/worker/xpu_worker.py
 +++ b/vllm/v1/worker/xpu_worker.py
 @@ -103,7 +103,13 @@ class XPUWorker(Worker):
@@ -35,12 +35,12 @@ index 005f02fb6..9803027ca 100644
              and current_platform.is_xpu()
          ):
 -            self.device = torch.device(f"xpu:{self.local_rank}")
-+            # WORKAROUND (vllm-b70): the parent sets per-worker
-+            # ONEAPI_DEVICE_SELECTOR=level_zero:<local_rank> so SYCL only sees
-+            # one device per worker (avoids multi-device JIT crash on BMG/2026)
-+            # while L0 still sees both cards (needed for oneCCL IPC). Inside
-+            # this worker torch.xpu.device_count()==1 and the only device is
-+            # at index 0 from torch's perspective, regardless of local_rank.
++            # NOTE (vllm-b70): on torch 2.12 / oneAPI 2026.0 we run with
++            # ONEAPI_DEVICE_SELECTOR=*:gpu (no per-worker single-device filter —
++            # that torch-2.10-era hack broke the triton device probe at FLA
++            # import). Each worker then sees all cards (device_count==4) and
++            # binds to xpu:<local_rank>. The device_count==1 branch is kept for
++            # backward-compat with the old single-device-filtered setup.
 +            if torch.xpu.device_count() == 1:
 +                local_index = 0
 +            else:

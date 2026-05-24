@@ -1,0 +1,18 @@
+diff --git a/vllm/v1/executor/multiproc_executor.py b/vllm/v1/executor/multiproc_executor.py
+index f9b771540..005e7ca4c 100644
+--- a/vllm/v1/executor/multiproc_executor.py
++++ b/vllm/v1/executor/multiproc_executor.py
+@@ -674,6 +674,13 @@ class WorkerProc:
+             daemon=True,
+         )
+ 
++        # NOTE (vllm-b70): on the from-source torch 2.12 / oneAPI 2026.0 stack,
++        # multi-device SYCL contexts JIT fine (the torch-2.10-era per-worker
++        # ONEAPI_DEVICE_SELECTOR=level_zero:<rank> filter is no longer needed,
++        # and level_zero:<N> actually breaks the triton device probe done at
++        # FLA-op import time). Workers inherit ONEAPI_DEVICE_SELECTOR=*:gpu from
++        # the launcher (torch still enumerates the 4 level_zero cards) and each
++        # worker binds to xpu:<local_rank> the stock way.
+         proc.start()
+         # Close child ends of pipes here in the parent
+         ready_writer.close()

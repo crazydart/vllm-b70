@@ -409,6 +409,57 @@ After P5, TP=2 boots cleanly, profile_run completes, KV cache initialises, the A
 
 ---
 
+## Serving hybrid models (Qwen3.5-27B / Qwen3.6-27B)
+
+**STATUS 2026-05-24: Qwen3.5-27B serves and generates on 4× B70 / upstream vLLM**
+(TP=2, bf16, eager). Same arch (`Qwen3_5ForConditionalGeneration`, GDN + full
+attention) as Qwen3.6-27B, so that path is proven. Requires the full B1
+from-source stack (torch 2.12 + triton-xpu 3.6 + vllm-xpu-kernels all on
+libsycl.so.9) PLUS the six fixes below. Launcher:
+`scripts/start-vllm-b70-qwen35-27b-tp2.sh`. Bench: `results/qwen35-27b-tp2-bench-*.md`
+(~245 t/s prefill c4, ~3.3 t/s decode c1 — modest; eager + JIT kernels, no AOT).
+
+- **S1. torchvision** — Qwen3.5 is a VL model; transformers' qwen2_vl video
+  processor imports torchvision at module load. We'd uninstalled it during the
+  torch swap. Fix: `uv pip install --no-deps torchvision` (got 0.27.0+xpu, ABI-OK
+  with torch 2.12).
+- **S2. `ONEAPI_DEVICE_SELECTOR="*:gpu"`, NOT `level_zero:N`** — `fla/ops/utils.py`
+  runs `triton.runtime.driver.active.get_current_target()` at FLA-op *import*,
+  which probes SYCL and throws `No device of requested type available` under any
+  `level_zero:*` selector. `*:gpu` works and torch.xpu still enumerates exactly
+  the 4 level_zero cards (verified). This also means the torch-2.10-era per-worker
+  `level_zero:<rank>` filter (old P4) is unusable — reverted (see S3).
+- **S3. Reverted per-worker device filtering (old P4 + P3/P5 simplification).**
+  torch 2.12 handles multi-device SYCL contexts fine (multi-device matmul JIT
+  verified), so the per-worker `level_zero:<rank>` hack is no longer needed AND
+  is incompatible with S2. `multiproc_executor.py` reverts to plain `proc.start()`;
+  workers inherit `*:gpu` and bind `xpu:<local_rank>` the stock way. Patch:
+  `patches/multiproc_executor_revert_per_worker_filter.patch`.
+- **S4. `USE_LIBUV=0`** — our from-source torch wasn't built with libuv;
+  torch.distributed TCPStore defaults to libuv → `DistStoreError`. Set the env var.
+- **S5. Hybrid KV-cache page-size unification** (two parts):
+  - `Qwen3_5ForConditionalGenerationConfig.verify_and_update_config` only set
+    `mamba_ssm_cache_dtype` and never called `HybridAttentionMambaModelConfig.
+    verify_and_update_config`, so the attn/mamba page-size alignment never ran →
+    `NotImplementedError: page size of the layer is not divisible by the maximum
+    page size`. Added the call. Patch: `patches/qwen3_5-hybrid-kv-config.patch`.
+  - The alignment computes `block_size=784` (makes full-attn page == GDN mamba
+    page: 784 × 2048 B/token = 1,605,632 B at TP=2), but XPU's
+    `check_and_update_config` runs *after* it and clobbers `block_size` back to
+    64 unless `user_specified_block_size` is set. Fix: pass `--block-size 784`
+    explicitly. (Model/TP-specific value; recompute if either changes.)
+- **S6. Memory budget** — the large GDN mamba-state cache leaves little KV room.
+  At maxlen 4096 / util 0.90, only 0.13 GiB KV available (needs 0.22). Fix:
+  `--max-model-len 2048 --gpu-memory-utilization 0.95` (→ 11.3× concurrency).
+
+**vLLM 0.22 migration.** S1/S4/S6 are env/flags (re-apply as needed). S2/S3 depend
+on torch 2.12 multi-device behaviour — re-test. S5 part-1 (the missing
+`HybridAttentionMambaModelConfig` call for Qwen3_5) is a genuine upstream gap —
+check if fixed upstream; part-2 (XPU clobbering aligned block_size) is an XPU
+platform ordering bug worth reporting upstream.
+
+---
+
 ## Builds
 
 ### B1. Build torch+xpu 2.12.0 from source against oneAPI 2026.0
