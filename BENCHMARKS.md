@@ -23,7 +23,8 @@ Standard run: `--pp 128 512 --tg 64 --concurrency 1 4 --runs 3`. Columns below:
 | Qwen3.6-27B (hybrid) | bf16 | **v0.21.0 (stock)** | **compiled + `20.2.0`** ⭐ | **4** (TP=4) | 188 | **5.1** | **11.9–15.6** | ✅ | `results/qwen36-27b-tp4-v0.21-compiled-ip2020-bench-20260524-213437.md` |
 | Qwen3.6-35B-A3B (**MoE**, 3B act) | bf16 | v0.21.0 (stock) | eager | **4** (TP=4) | **572** | 3.7 | 12.2–13.9 | ✅ | `results/qwen35b-a3b-tp4-v0.21-bench-20260524-221327.md` |
 | Qwen3.6-27B (hybrid) | **INT4** (compressed-tensors) | v0.21.0 (stock) | eager, no MTP | **2** (TP=2) | 285 | 3.7 | 12.1–12.3 | ✅ | `results/qwen36-27b-awq-tp2-v0.21-bench-20260524-223100.md` |
-| gemma-4-E4B-it (**MoE**, non-hybrid) | bf16 | v0.21.0 + **transformers v5** | eager | **2** (TP=2) | 552 | 5.5 | 15.7–17.5 | ✅ | `results/gemma-4-E4B-tp2-v0.21-bench-20260524-230125.md` |
+| gemma-4-E4B-it (**dense**, non-hybrid) | bf16 | v0.21.0 + **transformers v5** | eager | **2** (TP=2) | 552 | 5.5 | 15.7–17.5 | ✅ | `results/gemma-4-E4B-tp2-v0.21-bench-20260524-230125.md` |
+| gemma-4-26B-A4B-it (**MoE**, 128 exp/top-8) | bf16 | v0.21.0 + transformers v5 | eager | 4 (TP=4) | — | — | — | ❌ `No Unquantized MoE backend supports the deployment configuration` (XPU MoE-backend gap for gemma4 MoE; Qwen MoE works) |
 
 ⭐ = recommended config. ¹ v0.19 hybrid-state handling corrupts output under load
 (throughput measured before that was found; see FEATURE-MATRIX). ² compiled with
