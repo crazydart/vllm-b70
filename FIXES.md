@@ -2,7 +2,7 @@
 
 Every workaround applied to get upstream vLLM running on 4× Intel Arc Pro B70 (Battlemage / Xe2) with oneAPI 2026.0, host kernel 7.0.0-15-generic (`xe` driver), torch 2.10.0+xpu.
 
-**Purpose:** survive the eventual vLLM 0.22+ migration. For each entry: the symptom, the root cause we pinned down, what we changed, and what to recheck when moving to a newer vLLM/torch/oneAPI combo.
+**Purpose:** survive the eventual vLLM 0.21+ migration. For each entry: the symptom, the root cause we pinned down, what we changed, and what to recheck when moving to a newer vLLM/torch/oneAPI combo.
 
 **Current upstream base:** vLLM v0.19.0 in `build/v0.19-torch210/vllm/`. Branch `phase3-3way-applied`.
 
@@ -66,7 +66,7 @@ Already wired into `scripts/install-runtime.sh`.
 
 **Do NOT.** Do not build vllm-xpu-kernels from source against 2026.0 yet — at the pinned commit `4c83144` (matching Intel's AOT patch) build succeeds but the bench hangs the same way; at HEAD the AOT patch doesn't apply. The prebuilt 0.1.8.1 wheel is the only known-good path. See [N3](#n3-do-not-rebuild-vllm-xpu-kernels-from-source-yet).
 
-**vLLM 0.22 migration.** Re-check whether requirements/xpu.txt has bumped past 0.1.8. If yes, run the rms_norm / activation / rope kernels under bench first — if they pass, this workaround can be dropped. If requirements still pin <0.1.8, keep the force-reinstall.
+**vLLM 0.21 migration.** Re-check whether requirements/xpu.txt has bumped past 0.1.8. If yes, run the rms_norm / activation / rope kernels under bench first — if they pass, this workaround can be dropped. If requirements still pin <0.1.8, keep the force-reinstall.
 
 ---
 
@@ -86,7 +86,7 @@ Already wired into `scripts/install-runtime.sh`.
 
 **Tradeoff.** No `torch.compile` / inductor codegen at all. Custom hand-fused triton kernels in vLLM (slot mapping, masked embedding lookup) are replaced by torch-eager equivalents — slower per op, but correct. On a 0.6B model running on a single Xe2 GPU the throughput is not bound by these ops.
 
-**vLLM 0.22 migration.** If torch 2.12+xpu / triton-xpu 3.7+ is the install target, triton-xpu may have stopped vendoring its own libsycl. Try a clean install with `triton-xpu` present first — if there's no "Backends mismatch", roll back P1 and P2.
+**vLLM 0.21 migration.** If torch 2.12+xpu / triton-xpu 3.7+ is the install target, triton-xpu may have stopped vendoring its own libsycl. Try a clean install with `triton-xpu` present first — if there's no "Backends mismatch", roll back P1 and P2.
 
 ---
 
@@ -100,7 +100,7 @@ Already wired into `scripts/install-runtime.sh`.
 
 **Critical distinction.** `ONEAPI_DEVICE_SELECTOR` filters at the SYCL/UR adapter layer. `ZE_AFFINITY_MASK` filters at the Level Zero layer below it. We need the former; the latter breaks IPC. See [N1](#n1-do-not-use-ze_affinity_mask) for the dead end.
 
-**vLLM 0.22 migration.** Likely still required as long as Intel's SYCL/NEO stack has the multi-BMG JIT bug. Track Intel SYCL release notes for "multi-Battlemage context JIT" fix. The patches at P3 and P4 are tightly coupled to this workaround.
+**vLLM 0.21 migration.** Likely still required as long as Intel's SYCL/NEO stack has the multi-BMG JIT bug. Track Intel SYCL release notes for "multi-Battlemage context JIT" fix. The patches at P3 and P4 are tightly coupled to this workaround.
 
 ---
 
@@ -118,7 +118,7 @@ Already wired into `scripts/install-runtime.sh`.
 
 **Fix.** Replace the kernel call with a torch-native implementation `_compute_slot_mapping_torch(...)` that uses `torch.bucketize` for `req_idx` lookup, gather for block numbers, and `torch.where` for `is_local` masking. Behaviour matches the triton kernel for the cases vLLM currently exercises (incl. `total_cp_world_size > 1` interleave). Wrapped in a `WORKAROUND (vllm-b70)` comment so it's greppable.
 
-**vLLM 0.22 migration.** If triton-xpu becomes installable (see E2), revert this file. Otherwise re-port: the upstream signature of `compute_slot_mapping` and the triton kernel param list both move occasionally. Search for `_compute_slot_mapping_kernel\[` in the new tree.
+**vLLM 0.21 migration.** If triton-xpu becomes installable (see E2), revert this file. Otherwise re-port: the upstream signature of `compute_slot_mapping` and the triton kernel param list both move occasionally. Search for `_compute_slot_mapping_kernel\[` in the new tree.
 
 ---
 
@@ -141,7 +141,7 @@ Already wired into `scripts/install-runtime.sh`.
 
 **Fix.** Remove the decorator. Pure-eager path is small (a comparison, a where, a subtract) — no measurable cost.
 
-**vLLM 0.22 migration.** Re-add the decorator if triton-xpu is back in play (E2). Same `simple_compile_backend` import is still there, untouched.
+**vLLM 0.21 migration.** Re-add the decorator if triton-xpu is back in play (E2). Same `simple_compile_backend` import is still there, untouched.
 
 ---
 
@@ -167,7 +167,7 @@ self.init_gpu_memory = torch.xpu.get_device_properties(local_index).total_memory
 
 **Fix.** When `torch.xpu.device_count() == 1`, use device index 0. Otherwise fall back to `self.local_rank` (preserves behaviour for setups that don't apply E3).
 
-**vLLM 0.22 migration.** Keep this patch as long as E3 is in place. If E3 can be removed (multi-BMG JIT bug fixed upstream), revert this too.
+**vLLM 0.21 migration.** Keep this patch as long as E3 is in place. If E3 can be removed (multi-BMG JIT bug fixed upstream), revert this too.
 
 ---
 
@@ -196,7 +196,7 @@ finally:
 
 **Sub-agent caveat (do NOT change).** An earlier version used `ZE_AFFINITY_MASK` here. That broke oneCCL IPC. See [N1](#n1-do-not-use-ze_affinity_mask).
 
-**vLLM 0.22 migration.** Tied to E3. The function `_launch_worker_process` is stable across recent vLLM versions but the file `vllm/v1/executor/multiproc_executor.py` itself moves between minor releases. Grep for the `proc.start()` call site.
+**vLLM 0.21 migration.** Tied to E3. The function `_launch_worker_process` is stable across recent vLLM versions but the file `vllm/v1/executor/multiproc_executor.py` itself moves between minor releases. Grep for the `proc.start()` call site.
 
 ---
 
@@ -222,7 +222,7 @@ finally:
 
 **Fix.** Use `self.device.index` (which `init_device` set correctly) instead of `self.local_rank`. Applies to both `_determine_available_memory_fallback` (line 106) and `_determine_available_memory_default` (line 145).
 
-**vLLM 0.22 migration.** Tied to P3/E3. If/when E3 is no longer needed, revert both this and P3 together. If `xpu_worker.py` evolves and adds new `torch.xpu.get_device_properties(self.local_rank)` call sites in upstream, port the same fix.
+**vLLM 0.21 migration.** Tied to P3/E3. If/when E3 is no longer needed, revert both this and P3 together. If `xpu_worker.py` evolves and adds new `torch.xpu.get_device_properties(self.local_rank)` call sites in upstream, port the same fix.
 
 ---
 
@@ -238,7 +238,7 @@ export CCL_ENABLE_SYCL_KERNELS=0
 
 **Why.** oneCCL ships a BMG-optimised SYCL allreduce kernel `arc_ll256_allreduce` (and similar) that the runtime auto-selects on Xe2. On 2026.0 + our compute-runtime, building it crashes in `urProgramLinkExp`. Disabling falls back to the generic (slower) ring/recursive doubling implementations.
 
-**vLLM 0.22.** Independent of vLLM version — purely an Intel oneCCL/SYCL issue. Re-test when oneCCL is bumped past the version shipped with oneAPI 2026.0.
+**vLLM 0.21.** Independent of vLLM version — purely an Intel oneCCL/SYCL issue. Re-test when oneCCL is bumped past the version shipped with oneAPI 2026.0.
 
 ### R2. Force Level Zero v1 adapter
 
@@ -386,7 +386,7 @@ The 2026.0 system `libur_loader` *does* export that symbol. The problem is load 
 
 **Don't.** Don't reach for triton-xpu unless one of those three is in place first.
 
-**vLLM 0.22 migration.** Re-evaluate when (a) a torch+xpu wheel built against oneAPI 2026.0+ exists, or (b) vLLM upstream lands torch-native Mamba ops for the XPU path.
+**vLLM 0.21 migration.** Re-evaluate when (a) a torch+xpu wheel built against oneAPI 2026.0+ exists, or (b) vLLM upstream lands torch-native Mamba ops for the XPU path.
 
 ---
 
@@ -452,7 +452,7 @@ libsycl.so.9) PLUS the six fixes below. Launcher:
   At maxlen 4096 / util 0.90, only 0.13 GiB KV available (needs 0.22). Fix:
   `--max-model-len 2048 --gpu-memory-utilization 0.95` (→ 11.3× concurrency).
 
-**vLLM 0.22 migration.** S1/S4/S6 are env/flags (re-apply as needed). S2/S3 depend
+**vLLM 0.21 migration.** S1/S4/S6 are env/flags (re-apply as needed). S2/S3 depend
 on torch 2.12 multi-device behaviour — re-test. S5 part-1 (the missing
 `HybridAttentionMambaModelConfig` call for Qwen3_5) is a genuine upstream gap —
 check if fixed upstream; part-2 (XPU clobbering aligned block_size) is an XPU
@@ -482,7 +482,7 @@ platform ordering bug worth reporting upstream.
 - bf16 4k×4k matmul correct.
 - **triton-xpu 3.6.0 JIT add_kernel correct: True** ← the wall (N5) is broken.
 
-**vLLM 0.22 migration.** All three bugs are in pytorch v2.12.0's cmake; recheck whether upstream fixed #1's compiler gate (track torch-xpu-ops) and the two include-path bugs in the target torch version. If a torch+xpu wheel built against oneAPI 2026.0+ ever ships, this whole from-source build can be dropped.
+**vLLM 0.21 migration.** All three bugs are in pytorch v2.12.0's cmake; recheck whether upstream fixed #1's compiler gate (track torch-xpu-ops) and the two include-path bugs in the target torch version. If a torch+xpu wheel built against oneAPI 2026.0+ ever ships, this whole from-source build can be dropped.
 
 ---
 
@@ -525,12 +525,12 @@ Local context:
 
 ---
 
-## Migration checklist (for vLLM 0.22+)
+## Migration checklist (for vLLM 0.21+)
 
 When bumping the upstream base:
 
 1. **First** install on top of a clean tree with NONE of these patches applied. Run TP=1. If it works, every patch here can potentially be dropped — go through E1–E3, P1–P4, R1–R6 and re-evaluate one by one.
 2. If TP=1 fails, narrow which class of fix is still needed (kernel wheel? triton? per-worker device?). Use this doc to find the corresponding workaround.
 3. **Do not** copy patches forward blindly. The file layouts (`vllm/v1/worker/*`, `vllm/model_executor/layers/*`) change between minor releases; the patch shape may need to move.
-4. **Re-verify** every "vLLM 0.22 migration" note in this doc and prune.
+4. **Re-verify** every "vLLM 0.21 migration" note in this doc and prune.
 5. Keep this file's structure (E/P/R/N/O sections) so the diff between vLLM versions stays legible.
