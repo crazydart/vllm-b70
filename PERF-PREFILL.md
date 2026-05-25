@@ -67,6 +67,34 @@ matrix → prefill/short-context only, not a long-context solution.
 5. **Integrate.** Wire the winning config into `vllm-xpu-kernels` FMHA → re-bench
    in vLLM (pp512 *and* long-context pp4096/8192) vs the 180 t/s baseline.
 
+## Step 1 RESULT (2026-05-25) — hypothesis REFUTED, re-aimed
+
+Built the standalone cutlass-sycl FMHA prefill example on B70 (toolchain works via
+the examples path; benchmark-suite path is blocked by a googlebenchmark fetch).
+Measured at our head config (24 q / 4 kv heads, seq 512, causal):
+
+| FMHA config | TFLOP/s | time |
+|---|--:|--:|
+| hd128 (shipped) | 42.0 | 0.038 ms |
+| **hd256** (added a 3-line config, mirrors hd192) | **38.4** | 0.084 ms (= 2× FLOPs) |
+
+**head_dim 256 is NOT the bottleneck.** It runs at ~parity efficiency with hd128
+and verifies correct — the example just lacked a 256 *config entry* (now added).
+So the prefill gap is not the attention kernel's head_dim handling.
+
+**Re-aimed suspects (where the time actually likely goes):**
+1. **The GDN linear-attention layers (48 of 64!).** The hybrid model is dominated
+   by GDN, not full attention. Next: micro-measure `chunk_gated_delta_rule_xe2`
+   efficiency in isolation.
+2. **vLLM integration overhead** — eager dispatch, disabled XPU fusions, per-layer
+   op launches across 64 layers, TP=4 all-reduce. Next: profile an actual vLLM
+   prefill (VTune / per-layer timing) to get the real FMHA-vs-GDN-vs-other split.
+3. General FMHA efficiency (~40 TFLOP/s) may be below peak, but it's head-dim-
+   independent — a smaller, separate lever than GDN.
+
+**Revised plan:** profile vLLM prefill end-to-end for the time breakdown BEFORE
+more kernel work — chase the layer type that actually dominates (likely GDN).
+
 ## Honest risk / success criteria
 
 - CUTLASS/CuTe is deep; the SYCL port is under-documented. Real learning curve.
