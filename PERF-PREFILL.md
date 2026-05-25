@@ -95,6 +95,28 @@ So the prefill gap is not the attention kernel's head_dim handling.
 **Revised plan:** profile vLLM prefill end-to-end for the time breakdown BEFORE
 more kernel work — chase the layer type that actually dominates (likely GDN).
 
+## Step-1b RESULT (2026-05-25) — GDN ≫ FMHA, but neither is the real bottleneck
+
+Microbenchmarked the GDN kernel at model dims (16 K / 48 V heads × 128, conv-4),
+seq 512 prefill, 1 GPU (same method as the FMHA bench):
+
+| kernel | per layer | ×layers | total |
+|---|--:|--:|--:|
+| FMHA | 0.084 ms | ×16 | 1.3 ms |
+| **GDN** (`chunk_gated_delta_rule_xe2`) | **1.45 ms** | ×48 | **70 ms** |
+
+- **GDN is ~52× the attention cost** → if optimizing an attention-class kernel,
+  it's GDN, not FMHA (head_dim-256 FMHA conclusively ruled out). GDN runs at
+  ~sub-TFLOP/s (scalar gating + tiny 16×16×16 inverse tile — see its source).
+- **BUT the reconciliation fails:** 70 ms + 1.3 ms ≈ **<3% of the measured ~2.85 s
+  pp512 latency** (180 t/s × 512). So the *real* prefill cost is NOT the attention
+  kernels — it's projection/MLP **GEMMs**, eager dispatch/scheduling, and/or TP=4
+  overhead. (Not dispatch alone: compiled barely moved prefill, 180→188.)
+- **Conclusion: microbenchmarks hit their limit.** They give per-kernel costs but
+  can't attribute the missing ~2.7 s. Finding the true bottleneck needs a real
+  op-level profiler — which our torch lacks (`USE_KINETO=0`). Decision pending:
+  rebuild torch w/ kineto vs VTune (re-raised to the user 2026-05-25).
+
 ## Honest risk / success criteria
 
 - CUTLASS/CuTe is deep; the SYCL port is under-documented. Real learning curve.
