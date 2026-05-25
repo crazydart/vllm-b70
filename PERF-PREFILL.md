@@ -117,6 +117,41 @@ seq 512 prefill, 1 GPU (same method as the FMHA bench):
   op-level profiler — which our torch lacks (`USE_KINETO=0`). Decision pending:
   rebuild torch w/ kineto vs VTune (re-raised to the user 2026-05-25).
 
+## Step-1c RESULT (2026-05-25) — IT'S NOT THE KERNELS. It's execution overhead.
+
+GEMM triage (all model GEMM shapes, M=512, 1 GPU, torch.matmul→oneDNN):
+
+| component | time | note |
+|---|--:|---|
+| GEMMs (64 layers, proj+MLP) | **197 ms** | oneDNN **86–155 TFLOP/s** (up to ~85% of 182 peak) |
+| GDN (48 layers) | 70 ms | inefficient but small |
+| FMHA (16 layers) | 1.3 ms | fine |
+| **TOTAL COMPUTE** | **~268 ms** | (1 GPU, full) |
+| **measured pp512** | **~2850 ms** | (TP=4) |
+
+**Compute is <10% of prefill (less at TP=4). ~90% is overhead.** The GEMMs — the
+bulk of the math — are excellent (85% of peak). **There is no slow kernel to
+tune.** The prefill gap vs llama.cpp is **execution overhead**: eager per-op
+dispatch (XPU op-launch latency × 64 layers × many ops) + TP=4 all-reduce comm
+(~128 all-reduces over the B70 fabric). This is a vLLM-XPU **runtime/integration**
+problem, not a kernel-efficiency one.
+
+**Why this matters / what it means:**
+- The whole "tune the slow kernel to match llama.cpp" framing was wrong — measured
+  out from under us. llama.cpp wins single-stream because its fused C++ engine has
+  near-zero per-op overhead, NOT because its kernels are dramatically faster.
+- The real levers are framework-level and hard/upstream: cudagraph (eliminates
+  per-op launch — but XPU disables it at TP>1, the comms-capture limit), op fusion
+  (disabled on XPU), reducing TP all-reduce cost (oneCCL on the B70 fabric).
+- **Untested split:** how much of the ~2.6 s overhead is TP=4 comm vs eager
+  dispatch (would need a single-GPU full-prefill run — INT4 at max_len 512).
+
+**Recommendation: pause the kernel project.** It was aimed at the wrong layer.
+The kernels (esp. GEMM) are already good. Closing the single-stream prefill gap
+means attacking vLLM-XPU execution overhead — a deep upstream effort with
+uncertain ROI — whereas vLLM's actual value (concurrent serving) is unaffected by
+single-stream prefill latency. Use llama.cpp for single-stream, vLLM for concurrency.
+
 ## Honest risk / success criteria
 
 - CUTLASS/CuTe is deep; the SYCL port is under-documented. Real learning curve.
