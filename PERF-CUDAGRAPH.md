@@ -1,4 +1,12 @@
-# Project: PIECEWISE XPU-graph (cudagraph) at TP>1 on B70
+# Project: XPU cudagraph at TP>1 on B70
+
+> **STATUS (2026-05-25): partial success / NOT deployable.** ✅ Proved XPU
+> cudagraph-at-TP>1 works (a first) and reaches **5.1× decode (26 t/s)** on short
+> single-turn prompts. 🔴 **But the config is not production-usable: it degenerates
+> into garbage once context exceeds ~1k tokens** — the `--max-num-batched-tokens
+> 256` prefill chunking (forced by the SYCL-IPC ceiling) corrupts the hybrid GDN
+> state. It proves the ceiling is reachable; closing it for real use needs the
+> GDN-chunked-prefill fix (see Caveats). **For serving, use the compiled config.**
 
 **Goal:** beat the ~5.1 t/s compiled decode ceiling by eliminating per-op dispatch
 — the actual decode bottleneck (see PERF-DECODE.md: decode is dispatch-bound, not
@@ -91,9 +99,10 @@ DECODE batches as one full graph (GDN+FMHA+MLP+comm all in it) and runs mixed
 prefill EAGER — sidestepping the `core_attn_out/num_actual_tokens` break entirely.
 One-line change in `xpu.py` (PIECEWISE → FULL_DECODE_ONLY).
 
-## RESULT — 5.1× DECODE SPEEDUP (2026-05-25)
+## RESULT — 5.1× DECODE SPEEDUP, but NOT deployable (2026-05-25)
 
-Serve boots, captures 35/35 "decode, FULL" graphs at TP=4, inference correct.
+Serve boots, captures 35/35 "decode, FULL" graphs at TP=4, short-prompt inference
+correct + fast. **Fails in real multi-turn use (garbage >1k context — see Caveats).**
 
 | concurrency | compiled+ring (prev best) | **FULL_DECODE cudagraph** | speedup |
 |---|--:|--:|--:|
@@ -114,6 +123,20 @@ caveat). vLLM patches: `xpu.py` (FULL_DECODE_ONLY + capture-size cap),
 `parallel_state.py` (XPU graph_capture), `cuda_graph.py` (XPUGraph/torch.xpu.graph).
 
 ### Caveats / remaining work
+- **🔴 NOT production-usable: degenerates to garbage past ~1k context.** Real
+  multi-turn testing (OpenWebUI, 2026-05-25) showed the model produces coherent
+  output for short single-turn prompts but **collapses into runaway repetitive
+  garbage** once accumulated context exceeds ~1k tokens (e.g. turn 4 of a chat
+  after a long answer). This is the same root cause as the long_context_recall
+  FAIL but far more severe in practice. **Cause: `--max-num-batched-tokens 256`
+  prefill chunking corrupts the hybrid GDN recurrent state across chunk boundaries
+  at longer context** (decode itself is fine — a 600-tok single-turn generation
+  stayed coherent). The 256 cap is forced by the 3.7MB SYCL-IPC ceiling; the ceiling
+  only allows ~358 tokens, likely not enough to fix it — so a real fix needs either
+  GDN chunked-prefill correctness at small chunks, or a higher IPC ceiling, or
+  excluding GDN-state-bearing prefill from the chunk cap. **Until then: use the
+  compiled config for real serving.** This config is a research result (proves XPU
+  cudagraph-at-TP>1 + the 5× decode ceiling), not a deployable serve.
 - **Text-only for now.** Vision encoder all_reduce is large + eager and crashes the
   SYCL IPC path; vision disabled (`image:0`). Re-enabling needs the vision-encoder
   comm on ring while keeping the captured decode allreduce on SYCL (different code

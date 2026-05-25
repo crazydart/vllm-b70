@@ -21,7 +21,7 @@ Standard run: `--pp 128 512 --tg 64 --concurrency 1 4 --runs 3`. Columns below:
 | Qwen3.6-27B (hybrid) | bf16 | v0.20.2 (stock) | compiled + `bmg-g21` | **4** (TP=4) | 192 | 4.3 | 11.3–13.1 | ❌ corrupts² | `results/qwen36-27b-tp4-v0.20-graphmode-bench-20260524-172335.md` |
 | Qwen3.6-27B (hybrid) | bf16 | v0.21.0 (stock) | eager | **4** (TP=4) | 180 | 3.0–3.3 | 8.7–10.8 | ✅ | `results/qwen36-27b-tp4-v0.21-bench-20260524-192711.md` |
 | Qwen3.6-27B (hybrid) | bf16 | **v0.21.0 (stock)** | **compiled + `20.2.0`** ⭐ | **4** (TP=4) | 188 | **5.1** | **11.9–15.6** | ✅ | `results/qwen36-27b-tp4-v0.21-compiled-ip2020-bench-20260524-213437.md` |
-| Qwen3.6-27B (hybrid) | bf16 | v0.21.0 + **XPU-cudagraph patch** | **FULL_DECODE_ONLY** 🚀 | **4** (TP=4) | 520³ | **26.1**³ | **77.9³** | ⚠️ decode 8/8✅, long-ctx⁴ | `results/qwen36-27b-tp4-v0.21-xpucudagraph-fulldecode-bench-20260525.md` |
+| Qwen3.6-27B (hybrid) | bf16 | v0.21.0 + **XPU-cudagraph patch** | **FULL_DECODE_ONLY** 🚀 | **4** (TP=4) | 520³ | **26.1**³ | **77.9³** | 🔴 **garbage >1k ctx**⁴ | `results/qwen36-27b-tp4-v0.21-xpucudagraph-fulldecode-bench-20260525.md` |
 | Qwen3.6-35B-A3B (**MoE**, 3B act) | bf16 | v0.21.0 (stock) | eager | **4** (TP=4) | **572** | 3.7 | 12.2–13.9 | ✅ | `results/qwen35b-a3b-tp4-v0.21-bench-20260524-221327.md` |
 | Qwen3.6-27B (hybrid) | **INT4** (compressed-tensors) | v0.21.0 (stock) | eager, no MTP | **2** (TP=2) | 285 | 3.7 | 12.1–12.3 | ✅ | `results/qwen36-27b-awq-tp2-v0.21-bench-20260524-223100.md` |
 | gemma-4-E4B-it (**dense**, non-hybrid) | bf16 | v0.21.0 + **transformers v5** | eager | **2** (TP=2) | 552 | 5.5 | 15.7–17.5 | ✅ | `results/gemma-4-E4B-tp2-v0.21-bench-20260524-230125.md` |
@@ -34,12 +34,16 @@ before that was found; see FEATURE-MATRIX). ² compiled with the WRONG device ar
 the exact B70 IP `20.2.0` (the ⭐ row: correct AND ~55% faster decode). See
 FEATURE-MATRIX "compiled-path corruption SOLVED". ³ cudagraph row uses tg256/pp128
 (not tg64/pp512) — not directly comparable, but decode 26 t/s is a **5.1× jump
-over the ⭐ row's 5.1**. ⁴ text-only + 4096 ctx; all 8 decode-correctness tests
-pass, but long-context recall regresses (prefill-chunking side-effect of
-`--max-num-batched-tokens 256`). Full writeup: [`PERF-CUDAGRAPH.md`](PERF-CUDAGRAPH.md).
+over the ⭐ row's 5.1**. ⁴🔴 **NOT production-usable.** Short single-turn prompts
+are correct + fast, but the model **degenerates into runaway repetitive garbage
+once context exceeds ~1k tokens** (real multi-turn OpenWebUI test). Cause: the
+`--max-num-batched-tokens 256` prefill chunking (forced by the SYCL-IPC ceiling)
+corrupts the hybrid GDN recurrent state across chunk boundaries. Also text-only,
+4096 ctx. Decode-correctness 8/8 in isolation. Full writeup + unsolved fix:
+[`PERF-CUDAGRAPH.md`](PERF-CUDAGRAPH.md).
 
 **Takeaways:**
-- 🚀 **Fastest decode: Qwen3.6-27B, v0.21 + XPU-cudagraph patch (FULL_DECODE_ONLY), TP=4 — ~26 t/s decode (5.1× the compiled ⭐), ~78 t/s aggregate @ c4.** First working XPU cudagraph-at-TP>1. Caveats: text-only, 4096 ctx, long-ctx recall regressed. Launcher `scripts/serve-xpugraph-tp4.sh`; patch `patches/xpu-cudagraph-tp4-full-decode.patch`.
+- 🚀🔴 **XPU cudagraph (FULL_DECODE_ONLY) proves a 5.1× decode ceiling (~26 t/s) is reachable at TP=4 — first working XPU cudagraph-at-TP>1 — but the current config is NOT deployable: it produces garbage past ~1k context** (GDN state corrupted by the 256-token prefill chunking the SYCL-IPC ceiling forces). Research result, not a serve. Needs the GDN chunked-prefill fix. Launcher `scripts/serve-xpugraph-tp4.sh`; patch `patches/xpu-cudagraph-tp4-full-decode.patch`.
 - **Recommended (full-featured): Qwen3.6-27B, v0.21.0, compiled + `TRITON_INTEL_DEVICE_ARCH=20.2.0`, TP=4** — ~188 t/s prefill, **~5.1 t/s decode**, vision-capable, full context, correct (feature suite 10/10).
 - Eager (~3.3 t/s) is the correct fallback / fast-startup option.
 - The 27B (bf16, ~52 GB) fits on **2 cards** (TP=2) or 4 (TP=4); TP=4 is ~13 GB/card.

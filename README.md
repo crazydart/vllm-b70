@@ -16,15 +16,16 @@ runtime stack on oneAPI 2026.0; vLLM itself runs stock.
 > decode (~55% faster than eager). See [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) /
 > [`BENCHMARKS.md`](BENCHMARKS.md).
 
-> [!IMPORTANT]
-> **2026-05-25: XPU cudagraph at TP=4 → 5.1× decode (26 t/s).** First working
-> cudagraph-at-TP>1 on B70. Patch the vLLM XPU platform to `FULL_DECODE_ONLY`
-> (capture uniform decode batches; comm via the recordable SYCL-kernel allreduce).
-> Decode **5.1 → 26.1 t/s** (8.4× vs eager), ~78 t/s aggregate @ 4 concurrent.
-> Caveats: text-only + 4096 ctx + long-context recall regressed (prefill chunking).
-> Recipe: [`PERF-CUDAGRAPH.md`](PERF-CUDAGRAPH.md) · patch
-> `patches/xpu-cudagraph-tp4-full-decode.patch` · launcher
-> `scripts/serve-xpugraph-tp4.sh`.
+> [!WARNING]
+> **2026-05-25: XPU cudagraph at TP=4 hits 5.1× decode (26 t/s) but is NOT
+> production-usable — it degenerates to garbage past ~1k context.** Real result:
+> first working cudagraph-at-TP>1 on B70 (`FULL_DECODE_ONLY` capturing uniform
+> decode), decode 5.1 → 26.1 t/s on short single-turn prompts. **But** the
+> `--max-num-batched-tokens 256` prefill chunking it requires (SYCL-IPC ceiling)
+> **corrupts the hybrid GDN state at longer context → runaway repetitive garbage
+> in multi-turn chat.** It proves the ceiling is reachable; it is not deployable
+> yet. **For real serving use the compiled config below.** Details + the unsolved
+> fix: [`PERF-CUDAGRAPH.md`](PERF-CUDAGRAPH.md).
 
 ## What this gives you
 
