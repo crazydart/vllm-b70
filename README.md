@@ -16,6 +16,16 @@ runtime stack on oneAPI 2026.0; vLLM itself runs stock.
 > decode (~55% faster than eager). See [`FEATURE-MATRIX.md`](FEATURE-MATRIX.md) /
 > [`BENCHMARKS.md`](BENCHMARKS.md).
 
+> [!IMPORTANT]
+> **2026-05-25: XPU cudagraph at TP=4 → 5.1× decode (26 t/s).** First working
+> cudagraph-at-TP>1 on B70. Patch the vLLM XPU platform to `FULL_DECODE_ONLY`
+> (capture uniform decode batches; comm via the recordable SYCL-kernel allreduce).
+> Decode **5.1 → 26.1 t/s** (8.4× vs eager), ~78 t/s aggregate @ 4 concurrent.
+> Caveats: text-only + 4096 ctx + long-context recall regressed (prefill chunking).
+> Recipe: [`PERF-CUDAGRAPH.md`](PERF-CUDAGRAPH.md) · patch
+> `patches/xpu-cudagraph-tp4-full-decode.patch` · launcher
+> `scripts/serve-xpugraph-tp4.sh`.
+
 ## What this gives you
 
 - **Stock upstream vLLM `v0.21.0`** (and `v0.20.2`) on B70 — **zero source patches.**

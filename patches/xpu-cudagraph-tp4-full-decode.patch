@@ -1,0 +1,115 @@
+diff --git a/vllm/compilation/cuda_graph.py b/vllm/compilation/cuda_graph.py
+index b63d861..b6c4761 100644
+--- a/vllm/compilation/cuda_graph.py
++++ b/vllm/compilation/cuda_graph.py
+@@ -280,7 +280,10 @@ class CUDAGraphWrapper:
+                 x.data_ptr() for x in args if isinstance(x, torch.Tensor)
+             ]
+             entry.input_addresses = input_addresses
+-            cudagraph = torch.cuda.CUDAGraph()
++            if current_platform.is_xpu():
++                cudagraph = torch.xpu.XPUGraph()
++            else:
++                cudagraph = torch.cuda.CUDAGraph()
+ 
+             with ExitStack() as stack:
+                 if self.cudagraph_options.gc_disable:
+@@ -310,7 +313,12 @@ class CUDAGraphWrapper:
+                 get_offloader().sync_prev_onload()
+ 
+                 # mind-exploding: carefully manage the reference and memory.
+-                with torch.cuda.graph(
++                _graph_ctx = (
++                    torch.xpu.graph
++                    if current_platform.is_xpu()
++                    else torch.cuda.graph
++                )
++                with _graph_ctx(
+                     cudagraph,
+                     pool=self.graph_pool,
+                     stream=current_stream(),
+diff --git a/vllm/distributed/parallel_state.py b/vllm/distributed/parallel_state.py
+index 58c49c0..f6b6d63 100644
+--- a/vllm/distributed/parallel_state.py
++++ b/vllm/distributed/parallel_state.py
+@@ -463,6 +463,24 @@ class GroupCoordinator:
+ 
+     @contextmanager
+     def graph_capture(self, graph_capture_context: GraphCaptureContext | None = None):
++        from vllm.platforms import current_platform
++
++        if current_platform.is_xpu():
++            # XPU PIECEWISE graph capture: comm ops are split points (run eager),
++            # so we only need to switch to a capture stream. None of the CUDA
++            # custom-allreduce / aiter capture machinery applies on XPU.
++            if graph_capture_context is None:
++                stream = torch.xpu.Stream()
++                graph_capture_context = GraphCaptureContext(stream)
++            else:
++                stream = graph_capture_context.stream
++            curr_stream = torch.xpu.current_stream()
++            if curr_stream != stream:
++                stream.wait_stream(curr_stream)
++            with torch.xpu.stream(stream):
++                yield graph_capture_context
++            return
++
+         if graph_capture_context is None:
+             stream = torch.cuda.Stream()
+             graph_capture_context = GraphCaptureContext(stream)
+diff --git a/vllm/platforms/xpu.py b/vllm/platforms/xpu.py
+index bd9006f..1834c27 100644
+--- a/vllm/platforms/xpu.py
++++ b/vllm/platforms/xpu.py
+@@ -196,10 +196,48 @@ class XPUPlatform(Platform):
+                 "please set VLLM_XPU_ENABLE_XPU_GRAPH=1 to enable it."
+             )
+         elif parallel_config.world_size_across_dp > 1:
+-            compilation_config.cudagraph_mode = CUDAGraphMode.NONE
++            # XPU cudagraph at TP>1. oneCCL's host-staged (ring/sched) allreduce
++            # cannot be recorded into a SYCL graph, but its GPU-direct SYCL-kernel
++            # path CAN ("please use sycl_algorithms"). So we CAPTURE the comm into
++            # the graph (PIECEWISE splits only around attention, which isn't
++            # capturable). Requirements handled by the launcher:
++            #   - CCL_ENABLE_SYCL_KERNELS=1 (graph-recordable comm)
++            #   - CCL_ALLREDUCE/... = "topo:0-<3.5MB>;ring:..." (topo for small
++            #     captured decode buffers; ring for large eager prefill/profile)
++            # The SYCL topo path corrupts its L0 IPC handle for buffers >~3.7MB on
++            # B70, so we cap captured batch size so every captured allreduce stays
++            # in the topo range (256 tok x 5120 x 2B = 2.6MB < 3.7MB ceiling).
++            # Verified: XPU graph capture works + bit-exact on B70, ~3.2x on
++            # dispatch-bound sequences.
++            # Use FULL_DECODE_ONLY: both FMHA (FA2) and GDN declare UNIFORM_BATCH
++            # cudagraph support, so uniform DECODE batches capture as one full
++            # graph (max dispatch elimination, comm included via recordable SYCL
++            # allreduce); mixed prefill runs EAGER (avoids the mixed-piecewise GDN
++            # core_attn_out/num_actual_tokens contract break). This is exactly the
++            # 2-4-concurrent-decode target.
++            compilation_config.cudagraph_mode = CUDAGraphMode.FULL_DECODE_ONLY
++            # Cap captured batch size at 256 (2.6MB allreduce < 3.7MB topo IPC
++            # ceiling). Must truncate the capture-sizes LIST too, not just the
++            # max, or the dispatcher sizes its array by max(256) yet indexes by
++            # list entries up to 512 -> IndexError. Keep max == list[-1].
++            _CAP = 256
++            if compilation_config.cudagraph_capture_sizes:
++                compilation_config.cudagraph_capture_sizes = [
++                    s
++                    for s in compilation_config.cudagraph_capture_sizes
++                    if s <= _CAP
++                ]
++            if compilation_config.cudagraph_capture_sizes:
++                compilation_config.max_cudagraph_capture_size = (
++                    compilation_config.cudagraph_capture_sizes[-1]
++                )
++            else:
++                compilation_config.max_cudagraph_capture_size = _CAP
+             logger.warning(
+-                "XPU Graph doesn't support capture communication ops, "
+-                "disabling cudagraph_mode."
++                "XPU TP>1: enabling PIECEWISE cudagraph; comm captured via "
++                "SYCL-kernel allreduce (needs CCL_ENABLE_SYCL_KERNELS=1 + "
++                "size-ranged CCL_ALLREDUCE). Capping capture size to 256 to "
++                "keep captured allreduce buffers under the topo IPC ceiling."
+             )
+         else:
+             if (
